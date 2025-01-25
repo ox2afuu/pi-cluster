@@ -1,0 +1,33 @@
+# Local notes and editor/tooling config; not part of the distribution.
+CLAUDE.md
+**/CLAUDE.md
+.claude/
+
+# pi-gen build artifacts
+pi-gen/work/
+pi-gen/deploy/
+pi-gen/build.log
+pi-gen/logs/
+
+# Airgap payloads (download-assets.sh regenerates them).
+# Secrets must NEVER be committed; binaries are too large for git.
+assets/*
+!assets/README.md
+!assets/.gitkeep
+
+# Editor / OS noise
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build output
+*.log
+*.o
+*.a
