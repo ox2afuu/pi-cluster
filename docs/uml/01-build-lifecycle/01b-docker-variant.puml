@@ -1,0 +1,76 @@
+@startuml 01b-docker-variant
+title pi-gen stock Docker path (upstream default — NOT used by ivaliceCluster)
+
+skinparam defaultFontName Menlo
+skinparam sequence {
+    ArrowColor Black
+    LifeLineBorderColor Black
+    ParticipantBorderColor Black
+    ParticipantBackgroundColor #F8F8F8
+}
+
+actor Operator
+participant "build-docker.sh" as BD
+participant "Docker daemon" as Docker
+participant "pi-gen container\n(debian:trixie)" as Container
+database "pi-gen/deploy/" as Deploy
+
+note over Operator, Deploy
+  Provided as reference only. Upstream pi-gen's default way to build
+  on a machine with Docker. It does NOT satisfy ivaliceCluster's needs
+  (see "why it doesn't work for us" notes), which is why we use
+  scripts/_pigen-podman.sh instead.
+end note
+
+Operator -> BD : ./build-docker.sh -c config
+activate BD
+
+BD -> BD : check for podman\n(grep `podman info` for "rootless")
+note right of BD
+  **Fragile #1**: even rootful podman
+  emits "rootless" somewhere in info,
+  so the script mistakenly thinks it
+  has to prepend `sudo`, breaking
+  rootful-machine workflows on macOS.
+end note
+
+BD -> Docker : docker build -t pi-gen .
+activate Docker
+Docker -> Docker : build container image\nfrom pi-gen/Dockerfile
+Docker --> BD : image tagged
+deactivate Docker
+
+BD -> Docker : docker run --privileged\n  -v /config:/config\n  pi-gen bash -c '...'
+activate Docker
+
+note right of BD
+  **Fragile #2**: only the **config file** is
+  bind-mounted. ivaliceCluster's stages live
+  under ../stages/ and airgap assets under
+  ../assets/ — neither is visible to the build,
+  so STAGE_LIST=../stages/... cannot resolve.
+end note
+
+Docker -> Container : start
+activate Container
+Container -> Container : dpkg-reconfigure qemu-user-binfmt
+Container -> Container : mount binfmt_misc
+Container -> Container : cd /pi-gen && ./build.sh -c /config
+Container -> Container : runs stages stage0, stage1, stage2 only\n(no custom stage available)
+Container -> Container : rsync work/*/build.log deploy/
+Container --> Docker : exit 0
+deactivate Container
+
+Docker --> BD : container exited
+deactivate Docker
+
+BD -> Docker : docker cp container:/pi-gen/deploy/ deploy/
+activate Docker
+Docker -> Deploy : write *.img, *.log
+deactivate Docker
+
+BD -> Docker : docker rm
+BD --> Operator : Done.
+deactivate BD
+
+@enduml

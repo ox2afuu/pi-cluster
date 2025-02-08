@@ -1,0 +1,55 @@
+@startuml 02f-deployment-local
+title sphinx-asr deployment — single-machine (today, pre-integration)
+
+skinparam defaultFontName Menlo
+
+node "User workstation\n(Linux / macOS / WSL)" {
+
+    artifact "sphinx-asr/\n(SPHINX_ROOT)" as Root {
+        file "sphinx.sh\n(entrypoint)" as Entry
+        file "Makefile" as Mk
+        file "requirements.txt" as Reqs
+        file ".venv/\n(auto-created on first run)" as Venv
+        folder "scripts/\n(Python)" as Scripts
+        folder "vendor/\n(C + Perl source)" as Vendor
+        folder "bin/<arch>/\n(built binaries)" as Bin
+        folder "corpus/<name>/" as Corpus
+        folder "experiments/NNN/" as Exps
+    }
+}
+
+artifact "OS-level tools" {
+    file "python3" as Py
+    file "perl" as Perl
+    file "sox" as Sox
+    file "make, gcc, cmake" as Toolchain
+}
+
+Entry --> Venv     : creates + pip install
+Entry --> Scripts  : python3 scripts/<cmd>.py
+Entry --> Bin      : PATH prepend bin/<arch>
+Mk   --> Vendor    : cmake / make install\n→ bin/<arch>/
+Mk   --> Toolchain : cc, cmake
+Scripts --> Vendor : subprocess perl\nvendor/sphinxtrain/scripts/NN.*/slave_*.pl
+Scripts --> Corpus : read corpus.yml, audio, dict, lm
+Scripts --> Exps   : read/write experiment.yml,\netc/, model_parameters/,\nlogdir/, bwaccumdir/, result/
+Bin     --> Py     : sphinx_fe, pocketsphinx_batch are\nC binaries, invoked as subprocesses
+Scripts --> Py     : runs under .venv interpreter
+
+note right of Exps
+  **All state local.** Training's Baum-Welch
+  accumulator passes, decoder partitions, and
+  logs all live on the same filesystem as the
+  Python / Perl / C processes that produce them.
+
+  No Slurm, no NFS, no cross-host anything.
+end note
+
+note right of Root
+  Parallelism limited to:
+  - feats.py ThreadPoolExecutor across local cores
+  - Queue::POSIX fork-pool inside slave_*.pl
+    (capped by CFG_NPART, default 1)
+end note
+
+@enduml

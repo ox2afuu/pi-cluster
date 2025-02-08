@@ -1,0 +1,80 @@
+@startuml 05f-activity-node-join
+title Arbitrary L2 node joins the federation (no redeploy of existing clusters)
+
+skinparam defaultFontName Menlo
+skinparam activity {
+    BackgroundColor #FAFAFA
+    BorderColor Black
+    DiamondBackgroundColor #EEEEEE
+}
+
+|Operator|
+start
+:flash ivalice image onto new node's disk;
+:edit /boot/firmware/ivalice-node.conf:
+  NODE_ROLE=worker
+  NODE_HOSTNAME=<new>
+  NODE_IP=<static /24 ip>
+  NODE_FEDERATION_BOOTSTRAP=https://dalmasca:8443/bootstrap
+  NODE_FEDERATION_TOKEN=<pre-shared token>;
+:power on;
+
+|ivalice-firstboot.sh|
+:read /boot/firmware/ivalice-node.conf;
+:configure network, hostname;
+:request shared munge key over HTTPS\n(bootstrap URL, pre-shared token);
+if (bootstrap 200 OK?) then (yes)
+    :install /etc/munge/munge.key (0400);
+    :enable + start munge;
+    :touch /var/lib/ivalice/federation-ready;
+else (no)
+    :fail firstboot with clear error;
+    stop
+endif
+
+|Operator|
+:append hostname + IP to the federation
+Ansible inventory in Git:
+  inventory/federation.yml;
+:push / PR-merge;
+
+|Ansible (scheduled or on-demand)|
+:pull inventory;
+:render slurm.conf NodeName + PartitionName
+  from inventory;
+:scp slurm.conf to all heads;
+:run scontrol reconfigure on each head;
+
+|slurmctld|
+:register new node into federation;
+:mark IDLE;
+
+|Operator|
+:sbatch a test job targeting the new node:
+  sbatch -w <new> hostname;
+
+if (job returns hostname within 60s?) then (yes)
+    :node is operational in federation;
+    stop
+else (no)
+    :inspect slurmd.log on new node;
+    :troubleshoot munge, firewall, DNS;
+    stop
+endif
+
+note right
+  **No down time on existing clusters.**
+  `scontrol reconfigure` is live; the new
+  node slots into the existing partition
+  without restarting slurmctld.
+end note
+
+note right
+  **Decommission is the inverse:**
+  remove from inventory → re-render slurm.conf
+  → scontrol reconfigure. The node's historical
+  job records stay in sacct; its artifacts stay
+  in MinIO (content-addressed, cluster-agnostic).
+end note
+
+@enduml

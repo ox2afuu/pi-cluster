@@ -1,0 +1,49 @@
+@startuml 02g-component-cli
+title sphinx.sh dispatch tree (today)
+
+skinparam defaultFontName Menlo
+skinparam component {
+    BackgroundColor #FAFAFA
+    BorderColor Black
+}
+
+component "sphinx.sh" as Sh {
+    portin "$@ (argv)" as Argv
+    portout "$PYTHON scripts/..." as Dispatch
+}
+
+component "venv bootstrap\n(lines 13-18)" as VB
+component "env exports\n(lines 20-26)" as EE {
+    note top : SPHINX_ROOT,\nPATH=bin/<arch>:venv,\nSPHINXTRAIN_DIR,\nSPHINXTRAIN_BIN_DIR
+}
+component "run_script()\n(lines 44-59)" as RS {
+    note top : qsub if present else\n$PYTHON scripts/<file>.\nBranch for qsub references\nscripts/sphinx_job.sh\nwhich DOES NOT EXIST.
+}
+
+component "new_experiment.py" as New
+component "setup.py" as Setup
+component "train.py" as Train
+component "decode.py" as Decode
+component "feats.py" as Feats
+component "lm.py" as LM
+
+Argv --> VB
+VB --> EE
+EE --> Sh
+Sh --> New : case "new"
+Sh --> Setup : case "setup"
+Sh --> RS : case "train" / "decode"
+Sh --> Feats : case "feats"\n(direct, NOT through run_script)
+Sh --> LM : case "lm"\n(direct, NOT through run_script)
+RS --> Train : case "train"
+RS --> Decode : case "decode"
+
+note right of RS
+  **Gap for Slurm integration:**
+  - Only train/decode currently route through run_script
+  - feats and lm bypass it entirely
+  - The qsub branch calls a file that isn't in the repo
+  All three get corrected in Phase 2 of the plan.
+end note
+
+@enduml

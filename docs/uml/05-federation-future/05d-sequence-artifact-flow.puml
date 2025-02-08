@@ -1,0 +1,57 @@
+@startuml 05d-sequence-artifact-flow
+title Artifact flow — publish on cluster A, consume on cluster B
+
+skinparam defaultFontName Menlo
+
+actor "Operator A" as OpA
+participant "sphinx.sh\n(on cluster A head)" as ShA
+participant "MinIO" as Min
+participant "Postgres registry" as PG
+participant "sphinx.sh\n(on cluster B head)" as ShB
+actor "Operator B" as OpB
+
+== Publish (after training completes on cluster A) ==
+
+OpA -> ShA : sphinx publish experiments/001
+ShA -> ShA : compute sha256 of:\n  model_parameters/<db>.cd_cont_N/\n  etc/sphinx_train.cfg\n  etc/<db>.dic, etc/<db>.filler
+ShA -> Min : put experiments/001.cfg\n  key=sha256(cfg)
+ShA -> Min : put model tar\n  key=sha256(model)
+ShA -> Min : put dict+phones\n  key=sha256(dict)
+ShA -> PG : INSERT INTO experiments\n  (name, owner, origin=A,\n   cfg_hash, model_hash, dict_hash,\n   created_at, wer=NULL)
+ShA --> OpA : published; hash = <model_hash>
+
+== Consume (later, on cluster B) ==
+
+OpB -> ShB : sphinx pull <experiment_name>\n    --decode-corpus librispeech/test-clean
+ShB -> PG : SELECT * FROM experiments\n  WHERE name=<...>
+PG --> ShB : row (model_hash, dict_hash, cfg_hash)
+ShB -> Min : HEAD by cfg_hash / model_hash / dict_hash
+alt object missing
+    Min --> ShB : 404
+    ShB --> OpB : ERROR: artifact missing\n(did cluster A's GC purge it?)
+else present
+    ShB -> Min : GET model tar  → experiments/042/model_parameters/
+    ShB -> Min : GET cfg        → experiments/042/etc/
+    ShB -> Min : GET dict       → experiments/042/etc/
+    ShB --> OpB : materialized as experiments/042 on cluster B
+
+    OpB -> ShB : sphinx decode experiments/042
+    note right of ShB
+      Decode uses the Phase-3 sbatch --array
+      local to cluster B. No cross-cluster
+      scheduling needed; only the artifacts
+      travel, not the compute.
+    end note
+    ShB -> Min : put decode result (hash)
+    ShB -> PG : UPDATE experiments SET\n  decode_wer=...  WHERE id=...
+    ShB --> OpB : WER X.XX%
+end
+
+note right of PG
+  Registry row is the shared "what models exist"
+  index. MinIO is the bag-of-bytes. Together
+  they let a new cluster (or dropout node)
+  self-serve without operator scp.
+end note
+
+@enduml

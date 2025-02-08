@@ -1,0 +1,67 @@
+@startuml 03b-activity-baum-welch
+title Baum-Welch EM loop (slave_convg.pl)
+
+skinparam defaultFontName Menlo
+skinparam activity {
+    BackgroundColor #FAFAFA
+    BorderColor Black
+    DiamondBackgroundColor #EEEEEE
+}
+
+start
+
+:prev_likelihood = -infinity
+iter = 0;
+
+while (iter < CFG_MAX_ITERATIONS?) is (yes)
+    partition "E-step (parallelised across CFG_NPART)" {
+        fork
+            :partition 1: forward-backward\nbaum_welch.pl 1 $iter $NPART $ngau
+            → accumulate γ, ξ in bwaccumdir/;
+        fork again
+            :partition 2;
+        fork again
+            :partition i;
+        fork again
+            :partition NPART;
+        end fork
+    }
+    note right
+      Each partition processes a slice of the
+      training utterances independently, emits
+      Baum-Welch accumulators to bwaccumdir/.
+      Queue::* (POSIX, PBS, or new Slurm) drives
+      the submission.
+    end note
+
+    partition "Accumulate" {
+        :norm.pl: merge all partitions' accumulators;
+    }
+
+    partition "M-step" {
+        :update means, variances,\nmixture weights, transition matrices;
+        :write updated model to\nmodel_parameters/<db>.cd_cont_/;
+    }
+
+    :compute log-likelihood on training set;
+
+    if (likelihood - prev_likelihood < CFG_CONVERGENCE_RATIO?) then (converged)
+        stop
+    else (not yet)
+        :prev_likelihood = likelihood
+        iter += 1;
+    endif
+endwhile (too many iterations)
+
+:stop with warning (no convergence)
+log "Aborting — did not converge";
+stop
+
+note right
+  **Convergence is the normal exit.**
+  Max-iterations exit is a safety net;
+  indicates badly configured parameters
+  (too many tied states, bad init, etc.).
+end note
+
+@enduml

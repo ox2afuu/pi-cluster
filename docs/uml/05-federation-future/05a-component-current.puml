@@ -1,0 +1,58 @@
+@startuml 05a-component-current
+title Single-cluster state (post Phase 1-3) — anchor for federation diff
+
+skinparam defaultFontName Menlo
+skinparam component {
+    BackgroundColor #FAFAFA
+    BorderColor Black
+}
+
+package "Super6c #1 (ivalice)" {
+    node "dalmasca (head)" {
+        [slurmctld]
+        [slurmdbd (optional)]
+        [munge (key_A)]
+        [nfs-server]
+        [/srv/ivalice/\nsphinx-asr]
+    }
+
+    node "archadia (worker)" as W1 {
+        [slurmd] as S1
+        [munge_A] as M1
+        [nfs4 mount] as N1
+    }
+
+    node "rozarria (worker)" as W2 {
+        [slurmd] as S2
+        [munge_A] as M2
+        [nfs4 mount] as N2
+    }
+
+    node "bhujerba, nabradia, kerwon" as WN {
+        [slurmd x3] as SN
+        [munge_A x3] as MN
+    }
+}
+
+cloud "Private /24\n(airgap)" as Net
+
+dalmasca --> Net
+W1 --> Net
+W2 --> Net
+WN --> Net
+
+note right of dalmasca
+  Single source of truth. Operator SSHes here,
+  runs `sphinx …`, watches Slurm schedule on
+  locally-attached workers.
+end note
+
+note bottom of Net
+  **Limitations — drive the federation case:**
+  - Only one cluster can work on an experiment at a time.
+  - Every experiment's artifacts live on this head's NFS;
+    another cluster would need a copy (manual scp).
+  - No cross-team identity or sharing semantics.
+end note
+
+@enduml

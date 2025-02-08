@@ -1,0 +1,88 @@
+@startuml 04d-activity-train-run
+title Full train → decode run across the 5-worker cluster
+
+skinparam defaultFontName Menlo
+skinparam activity {
+    BackgroundColor #FAFAFA
+    BorderColor Black
+    DiamondBackgroundColor #EEEEEE
+}
+
+|Operator (on head)|
+start
+:ssh ivalice@dalmasca;
+:sphinx new -t librispeech
+→ experiments/001/;
+:edit experiments/001/experiment.yml
+  CFG_QUEUE_TYPE: "Queue::Slurm"
+  CFG_NPART: 10
+  DEC_CFG_NPART: 20
+  slurm: { step_overrides, ... };
+:sphinx setup experiments/001
+→ etc/sphinx_train.cfg;
+:sphinx feats librispeech train-clean-100
+(single outer sbatch → one worker);
+
+|Slurm cluster|
+:sbatch outer feats job;
+:worker extracts .mfc under
+/srv/ivalice/sphinx-asr/corpus/...;
+
+|Operator (on head)|
+:sphinx lm librispeech dev-clean
+(single outer sbatch);
+
+|Slurm cluster|
+:build ARPA LM via cmu_toolkit;
+
+|Operator (on head)|
+:sphinx train experiments/001;
+
+|Slurm cluster|
+repeat
+    :train.py picks next STEP;
+    :Queue::Slurm: CFG_NPART sbatch partitions;
+    fork
+        :worker 1 — partition 1;
+    fork again
+        :worker 2 — partition 2;
+    fork again
+        :worker i — partition i;
+    fork again
+        :worker 5 — partition 10;
+    end fork
+    :slave_convg.pl: norm + M-step on head worker;
+    :validate_step() on head;
+repeat while (more of the 13 steps?) is (yes)
+->no;
+
+|Operator (on head)|
+:sphinx decode experiments/001;
+
+|Slurm cluster|
+:decode.py submits sbatch --array=1-20;
+fork
+    :worker A tasks 1..4;
+fork again
+    :worker B tasks 5..8;
+fork again
+    :worker C tasks 9..12;
+fork again
+    :worker D tasks 13..16;
+fork again
+    :worker E tasks 17..20;
+end fork
+
+|Operator (on head)|
+:run word_align.pl locally on head;
+:print WER / SER;
+
+if (WER acceptable?) then (yes)
+    stop
+else (no)
+    :iterate: adjust experiment.yml
+    (CFG_N_TIED_STATES, CFG_NPART, etc.);
+    detach
+endif
+
+@enduml

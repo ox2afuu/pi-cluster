@@ -1,0 +1,70 @@
+@startuml 02d-sequence-train
+title sphinx train <exp_dir> — 13-step sphinxtrain pipeline (today, local-only)
+
+skinparam defaultFontName Menlo
+
+actor User
+participant "sphinx.sh" as Sh
+participant "train.py" as Train
+participant "run_script()" as RS
+participant "subprocess" as SP
+participant "perl slave_*.pl\n(vendor/sphinxtrain)" as Slave
+participant "Queue::POSIX\n(Perl, single-machine fork)" as Q
+database "<exp_dir>/logdir/" as Logs
+database "<exp_dir>/\nmodel_parameters/" as Models
+
+User -> Sh : sphinx train experiments/001
+Sh -> RS : run_script("train.py", "experiments/001")
+RS -> RS : qsub on PATH?\n(currently: no, or only Torque)
+RS -> Train : $PYTHON scripts/train.py experiments/001
+activate Train
+
+Train -> Train : load_experiment, read STEPS list
+Train -> Train : os.chdir(exp_dir)\n(all Perl reads relative paths)
+
+loop for each step in STEPS (13 total, starting 00.verify)
+    Train -> SP : Popen(["perl",\n   "vendor/sphinxtrain/scripts/NN.step/slave_*.pl"],\n  stdout=PIPE, stderr=STDOUT)
+    activate SP
+    SP -> Slave : fork
+    activate Slave
+    Slave -> Slave : read etc/sphinx_train.cfg
+    Slave -> Q : new(queue_type=CFG_QUEUE_TYPE)
+    note right of Q : CFG_QUEUE_TYPE default "Queue::POSIX"\n= local fork pool of CFG_NPART workers
+    loop CFG_NPART partitions
+        Slave -> Q : submit_job(baum_welch i of NPART)
+        Q -> Q : fork child; run perl routine\n(in-process, same host)
+        Q --> Slave : completed (wait_all)
+    end
+    Slave -> Models : write accumulator updates\n(cd_cont_/, transition_matrices, means, ...)
+    Slave -> Logs : write per-step log lines
+    Slave --> SP : exit code
+    deactivate Slave
+
+    loop streaming stdout
+        SP --> Train : line
+        Train -> Train : print live
+    end
+    deactivate SP
+
+    Train -> Train : validate_step(step.artifacts)
+    alt exit code != 0 AND artifacts exist
+        Train -> Train : tolerate (MLLT spurious exit-1)
+    else exit code != 0 AND artifacts missing
+        Train -> Train : scan log for fatal_patterns\n("0 frames", "FATAL")
+        Train -> User : print tail; sys.exit(1)
+    end
+end
+
+Train --> RS : exit 0
+deactivate Train
+RS --> Sh
+Sh --> User : "training complete"
+
+note over Q
+  Parallelism today is **within one machine only**.
+  Queue::POSIX forks locally; Queue::PBS exists
+  but the path in sphinx.sh (qsub) is stubbed
+  with a non-existent scripts/sphinx_job.sh.
+end note
+
+@enduml

@@ -1,0 +1,86 @@
+@startuml 04c-sequence-decode-array
+title sphinx decode — sbatch --array (Phase 3)
+
+skinparam defaultFontName Menlo
+
+actor Operator
+participant "sphinx.sh" as Sh
+participant "decode.py" as Dec
+participant "sbatch --array" as SBA
+participant "slurmctld" as Ctl
+participant "worker 1\n(array task 1)" as W1
+participant "worker 2..5\n(array tasks 2..20)" as Wn
+participant "sacct / scontrol" as SA
+participant "progress thread\n(match-file poll)" as PT
+participant "word_align.pl\n(local on head)" as Align
+database "/srv/ivalice/\nsphinx-asr/\nexperiments/NNN/\nresult/" as Result
+
+Operator -> Sh : sphinx decode experiments/001
+Sh -> Dec : run_script("decode.py", ...)\n(outer sbatch, 1 node)
+activate Dec
+Dec -> Dec : read DEC_CFG_NPART (e.g. 20)\nCFG_QUEUE_TYPE = Queue::Slurm
+Dec -> Dec : detect Slurm mode\nauto-clamp NPART if dataset tiny
+Dec -> Result : clear stale <db>-*.match
+
+Dec -> SBA : sbatch --parsable \\\n  --array=1-20 \\\n  --job-name=sphinx-decode-001 \\\n  --output=...slurm-logs/decode-%A_%a.out \\\n  decode_partition.sh $EXP_DIR $NPART
+SBA -> Ctl : enqueue array job 12345
+Ctl --> Dec : 12345
+
+par 20 array tasks scheduled across 5 workers
+    Ctl -> W1 : dispatch task 12345_1
+    activate W1
+    W1 -> W1 : perl psdecode.pl 1 20
+    W1 -> Result : write 001-1-20.match
+    W1 --> Ctl : exit 0
+    deactivate W1
+else
+    Ctl -> Wn : dispatch tasks 12345_[2..20]
+    activate Wn
+    Wn -> Wn : perl psdecode.pl i 20
+    Wn -> Result : write 001-i-20.match
+    Wn --> Ctl : exit 0
+    deactivate Wn
+end
+
+par progress visibility (on head)
+    Dec -> PT : start match-file poll thread\n(existing logic)
+    activate PT
+    loop every 5s
+        PT -> Result : count lines across *.match
+        PT -> Operator : waitbar
+    end
+else
+    loop sacct poll every 5s
+        Dec -> SA : sacct -j 12345 -X -n -P\n  -o JobID,State
+        SA --> Dec : array task states
+        alt all COMPLETED
+            Dec -> Dec : break
+        else any FAILED/OOM/TIMEOUT/NODE_FAIL
+            Dec -> Ctl : scancel 12345\n(cancel remaining)
+            Dec -> Operator : raise RuntimeError\n(pointer to .err log)
+        end
+    end
+end
+
+Dec -> PT : stop_event.set()
+deactivate PT
+
+Dec -> Align : perl word_align.pl on head\n(concatenated .match → 001.match)
+activate Align
+Align -> Result : write 001.match
+Align --> Dec : stdout "WORD ERROR RATE..."
+deactivate Align
+
+Dec -> Dec : parse WER/SER
+Dec --> Sh : print; exit 0
+deactivate Dec
+Sh --> Operator : "WER xx.xx% — see result/"
+
+note right of Dec
+  decode.py bypasses slave.pl entirely in
+  cluster mode: one sbatch --array instead of
+  Queue::Slurm per partition. Cleaner exit-code
+  propagation and simpler mental model for decode.
+end note
+
+@enduml

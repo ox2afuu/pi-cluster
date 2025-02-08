@@ -1,0 +1,95 @@
+@startuml 01c-podman-variant
+title ivaliceCluster custom Podman path (scripts/_pigen-podman.sh::run_pigen)
+
+skinparam defaultFontName Menlo
+skinparam sequence {
+    ArrowColor Black
+    LifeLineBorderColor Black
+    ParticipantBorderColor Black
+    ParticipantBackgroundColor #F8F8F8
+}
+
+actor Operator
+participant "build.sh" as Build
+participant "_pigen-podman.sh" as Helper
+participant "podman-machine VM\n(macOS only)" as VM
+participant "podman" as Podman
+participant "pi-gen container\n(debian:trixie)" as Container
+database "pi-gen/deploy/" as Deploy
+
+Operator -> Build : ./scripts/build.sh
+activate Build
+Build -> Helper : source _pigen-podman.sh
+Build -> Build : download-assets, generate-{token,ssh,munge}
+Build -> Build : concat pubkeys → PUBKEY_SSH_FIRST_USER
+Build -> Build : touch pi-gen/stage{3,4,5}/SKIP
+Build -> Helper : run_pigen(config.base)
+activate Helper
+
+Helper -> Helper : require_podman_machine()
+note right of Helper
+  On macOS: enforce rootful
+  machine (checks
+  `podman machine inspect
+  --format '{{.Rootful}}'`).
+  On Linux: only check podman
+  is responsive.
+end note
+
+Helper -> VM : podman machine ssh\n(sudo losetup -D + detach (lost)/(deleted))
+note right: ensure_clean_podman_state\n— macOS only; Linux skips so\nwe don't yank host loops
+
+Helper -> Helper : patch_pigen_losetup_sanitize()\n— sed pi-gen/scripts/common for\nutil-linux 2.41 `losetup -f` suffix
+note right of Helper
+  Idempotent: skips if the
+  patched line already contains
+  "losetup -f | awk".
+end note
+
+Helper -> Podman : podman build -t pi-gen\n  --build-arg BASE_IMAGE=debian:trixie
+activate Podman
+Podman -> Podman : build image from\npi-gen/Dockerfile
+Podman --> Helper : tagged
+deactivate Podman
+
+Helper -> Podman : podman run --privileged\n  -v config:/config:ro\n  -v stages:/stages:ro\n  -v assets:/assets:ro\n  -e GIT_HASH, PUBKEY_SSH_FIRST_USER
+note left of Podman
+  **Three** bind mounts, not one.
+  /stages and /assets exist
+  outside the pi-gen tree in
+  ivaliceCluster's layout.
+end note
+
+activate Podman
+Podman -> Container : start
+activate Container
+Container -> Container : dpkg-reconfigure qemu-user-binfmt
+Container -> Container : mount binfmt_misc
+Container -> Container : final-pass loop cleanup\n(belt + suspenders after VM cleanup)
+Container -> Container : cd /pi-gen && ./build.sh -c /config
+note right of Container
+  Runs upstream stage0, stage1, stage2 and
+  ivaliceCluster's ../stages/stage-ivalice-base/
+  (incl. 00-ivalice-base and 10-sphinx-asr).
+end note
+Container -> Container : rsync work/*/build.log deploy/
+Container --> Podman : exit 0
+deactivate Container
+
+Helper -> Podman : podman cp container:/pi-gen/deploy/. → host deploy/
+Podman -> Deploy : write *.img, build.log
+Helper -> Podman : podman logs --timestamps > pi-gen/logs/build-podman.log
+Helper -> Helper : compgen -G '*.img' — verify non-empty
+alt *.img present
+    Helper -> Podman : podman rm -v pigen_work\n(unless PRESERVE_CONTAINER=1)
+else no *.img
+    Helper -> Operator : **FAIL** — see build-podman.log
+end
+deactivate Podman
+
+Helper --> Build : done
+deactivate Helper
+Build --> Operator : print deploy/ listing
+deactivate Build
+
+@enduml
