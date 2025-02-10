@@ -1,0 +1,139 @@
+@startuml 03d-class-corpus-model
+title Corpus / dict / LM / features — domain model
+
+skinparam defaultFontName Menlo
+skinparam class {
+    BackgroundColor #FAFAFA
+    BorderColor Black
+    ArrowColor Black
+}
+
+class Corpus {
+    name: str
+    audio_format: str
+    audio_type: str
+    sample_rate: int
+    num_filt: int
+    lo_filt: int
+    hi_filt: int
+    cmn: bool
+    --
+    splits: Map<name,Split>
+    dict: Dictionary
+    lm: LanguageModel
+    full_transcripts: Path?
+    fillers: list<str>
+}
+
+class Split {
+    name: str
+    audio: Path
+    hours: float
+    --
+    utterances(): Iterator<Utterance>
+}
+
+class Utterance {
+    fileid: Path     <<rel to SPHINX_ROOT>>
+    transcript: str
+    speaker_id: str?
+    audio_path: Path
+    features: Features?
+}
+
+class Features {
+    path: Path        <<.mfc>>
+    dim: int          <<= num_filt * 3 (CMN+Δ+ΔΔ)>>
+    cmn_applied: bool
+    lda_applied: bool
+    mllt_applied: bool
+}
+
+class Dictionary {
+    path: Path
+    entries: Map<word, list<phone>>
+    phones: set<Phone>
+    --
+    lookup(word): list<phone>
+    is_oov(word): bool
+}
+
+class Phone {
+    symbol: str
+    --
+    triphones(ctx_left, ctx_right): CD_Phone
+}
+
+class CD_Phone {
+    center: Phone
+    left_ctx: Phone
+    right_ctx: Phone
+    --
+    senone_id: int <<after tying>>
+}
+
+class LanguageModel {
+    path: Path   <<ARPA>>
+    order: int   <<e.g. 3 = trigram>>
+    vocab: set<str>
+    --
+    prob(word, history): float
+    backoff(word, history): float
+}
+
+class AcousticModel {
+    path: Path   <<model_parameters/<db>.cd_cont_N/>>
+    hmm_type: str   <<.cont. | .semi.>>
+    states_per_hmm: int
+    n_tied_states: int
+    --
+    means, variances, mixture_weights
+    transition_matrices
+    mdef: senone definition
+}
+
+class Experiment {
+    name: str
+    train_corpora: list<Corpus>
+    decode_corpus: Corpus
+    cfg: SphinxTrainCfg
+    model: AcousticModel?
+    result: DecodeResult?
+}
+
+class SphinxTrainCfg {
+    CFG_HMM_TYPE: str
+    CFG_N_TIED_STATES: int
+    CFG_NPART: int
+    CFG_QUEUE_TYPE: str
+    DEC_CFG_NPART: int
+    DEC_CFG_BEAMWIDTH: float
+    DEC_CFG_LANGUAGEWEIGHT: float
+    DEC_CFG_WORDPENALTY: float
+}
+
+class DecodeResult {
+    hypotheses: list<Utterance>
+    wer: float
+    ser: float
+    match_files: list<Path>
+}
+
+Corpus "1" *-- "many" Split
+Split  "1" *-- "many" Utterance
+Utterance "1" o-- "1" Features
+Corpus "1" *-- "1" Dictionary
+Dictionary "1" *-- "many" Phone
+Phone "1" -- "many" CD_Phone
+Corpus "1" *-- "1" LanguageModel
+
+Experiment "many" --> "many" Corpus : train_corpora
+Experiment "1" --> "1" Corpus : decode_corpus
+Experiment "1" *-- "1" SphinxTrainCfg
+Experiment "0..1" *-- "1" AcousticModel
+Experiment "0..1" *-- "1" DecodeResult
+
+AcousticModel --> CD_Phone : senones
+AcousticModel --> Phone : CI states
+
+@enduml

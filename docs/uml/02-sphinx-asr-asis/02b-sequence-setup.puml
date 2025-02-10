@@ -1,0 +1,67 @@
+@startuml 02b-sequence-setup
+title sphinx setup <exp_dir> — experiment.yml → etc/*
+
+skinparam defaultFontName Menlo
+
+actor User
+participant "sphinx.sh" as Sh
+participant "setup.py" as Setup
+participant "config.py" as Cfg
+participant "corpus/<name>.py\n(adapter)" as Adapter
+database "<exp_dir>/\nexperiment.yml" as ExpYaml
+database "corpus/<name>/\ncorpus.yml" as CorpusYaml
+database "<exp_dir>/etc/" as EtcOut
+
+User -> Sh : sphinx setup experiments/001
+Sh -> Sh : export SPHINX_ROOT,\nSPHINXTRAIN_DIR, PATH
+Sh -> Setup : $PYTHON scripts/setup.py experiments/001
+activate Setup
+
+Setup -> Cfg : load_experiment(exp_dir, root)
+activate Cfg
+Cfg -> ExpYaml : yaml.safe_load
+Cfg -> Cfg : validate train.corpora, decode.corpus
+loop for each corpus in train.corpora + decode.corpus
+    Cfg -> CorpusYaml : yaml.safe_load(corpus/<name>/corpus.yml)
+    Cfg -> Cfg : attach _corpus + _dir to entry
+    Cfg -> Cfg : expand `splits: [...]` shorthand
+    Cfg -> Cfg : assert each split exists in corpus
+end
+Cfg --> Setup : experiment dict (resolved)
+deactivate Cfg
+
+Setup -> Adapter : get_adapter(corpus_name)
+activate Adapter
+loop for each (fileid, text) in adapter.get_utterances(...)
+    Adapter --> Setup : (fileid, text)
+end
+deactivate Adapter
+
+Setup -> Setup : filter_oov_utterances\n(drop utts with words missing from dict)
+note right: writes etc/<db>_train.oov\nif any OOV words found
+
+Setup -> EtcOut : write <db>_train.fileids
+Setup -> EtcOut : write <db>_train.transcription
+Setup -> EtcOut : write <db>_decode.fileids
+Setup -> EtcOut : write <db>_decode.transcription
+Setup -> EtcOut : write <db>.dic (pruned)
+Setup -> EtcOut : write <db>.phone
+Setup -> EtcOut : write <db>.filler
+
+Setup -> Cfg : generate_sphinx_train_cfg(experiment, exp_dir, root)
+activate Cfg
+Cfg -> Cfg : load vendor/sphinxtrain/etc/sphinx_train.cfg template
+Cfg -> Cfg : substitute ___DB_NAME___, ___BASE_DIR___,\n___SPHINXTRAIN_DIR___, ___SPHINXTRAIN_BIN_DIR___
+Cfg -> Cfg : _apply_overrides(corpus-derived):\n  CFG_WAVFILE_EXTENSION, CFG_WAVFILE_TYPE,\n  CFG_WAVFILE_SRATE, CFG_NUM_FILT,\n  CFG_LO_FILT, CFG_HI_FILT
+Cfg -> Cfg : _apply_overrides(user's sphinxtrain: block)\n  via _to_perl_value quoting
+Cfg --> Setup : cfg text
+deactivate Cfg
+
+Setup -> EtcOut : write sphinx_train.cfg
+Setup -> EtcOut : write feat.params (__CFG_*__ placeholders replaced)
+
+Setup --> Sh : exit 0
+deactivate Setup
+Sh --> User : "setup complete — see <exp_dir>/etc/"
+
+@enduml

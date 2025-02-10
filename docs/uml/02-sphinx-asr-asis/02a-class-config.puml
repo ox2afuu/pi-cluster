@@ -1,0 +1,111 @@
+@startuml 02a-class-config
+title sphinx-asr — config object model (scripts/lib/config.py + asr_util.py)
+
+skinparam defaultFontName Menlo
+skinparam class {
+    BackgroundColor #FAFAFA
+    BorderColor Black
+    ArrowColor Black
+}
+
+class "experiment.yml" as ExpYaml <<(F,#orange) file>> {
+    name: str
+    author: str
+    train.corpora: list
+    decode.corpus: dict
+    sphinxtrain: dict
+    pipeline.mllt_init: str|int
+}
+
+class "corpus/<name>/corpus.yml" as CorpusYaml <<(F,#orange) file>> {
+    name: str
+    audio_format: str
+    audio_type: str
+    sample_rate: int
+    num_filt: int
+    lo_filt: int
+    hi_filt: int
+    cmn: bool
+    dict: str
+    lm: str
+    splits: dict[name→split]
+    audio_dir: str
+    full_transcripts: str
+    fillers: list
+}
+
+class "scripts/lib/asr_util.py" as Util {
+    +get_sphinx_root() : Path
+}
+note right of Util
+  Reads $SPHINX_ROOT
+  (set by sphinx.sh).
+  Every Python entry
+  script calls this
+  before touching paths.
+end note
+
+class "scripts/lib/config.py" as Config {
+    +load_experiment(exp_dir, root) : dict
+    +generate_sphinx_train_cfg(experiment, exp_dir, root) : str
+    -_apply_overrides(template: str, overrides: dict) : str
+    -_to_perl_value(v: Any) : str
+    -_resolve_corpus(entry, root) : dict
+    -_expand_splits(entry) : list[dict]
+}
+note right of Config
+  _to_perl_value:
+    bool  → 'yes'/'no'
+    int   → bare
+    float → bare
+    "1e-80" → bare (numeric-looking)
+    "$FOO" → "$FOO"  (double-quote, preserves var)
+    other → 'other'   (single-quote)
+end note
+
+class "scripts/corpus/__init__.py" as CorpusDispatch {
+    +get_adapter(corpus_name) : Module
+}
+note right of CorpusDispatch
+  Dynamic import:
+  importlib.import_module(
+    f"corpus.{corpus_name}"
+  )
+end note
+
+interface "<<corpus adapter>>" as Adapter {
+    +get_utterances(corpus_dir, split_name,\n  split_cfg, corpus_cfg) : Iterator[(fileid, text)]
+}
+note top of Adapter
+  fileid is relative to **SPHINX_ROOT**,
+  extension-less. Sphinxtrain appends .mfc
+  and resolves under $CFG_FEATFILES_DIR
+  (= SPHINX_ROOT).
+end note
+
+class "scripts/corpus/librispeech.py" as LS
+class "scripts/corpus/switchboard.py" as SW
+
+class "vendor/sphinxtrain/etc/sphinx_train.cfg" as CfgTpl <<(F,#orange) file>> {
+  __perl template with placeholders__
+  ___DB_NAME___
+  ___BASE_DIR___
+  ___SPHINXTRAIN_DIR___
+  ___SPHINXTRAIN_BIN_DIR___
+  $CFG_NPART, $CFG_QUEUE_TYPE, ...
+}
+
+class "<exp_dir>/etc/sphinx_train.cfg" as CfgOut <<(F,#orange) file>> {
+  __generated; consumed by perl slaves__
+}
+
+ExpYaml     --> Config        : parsed by\nload_experiment
+CorpusYaml  --> Config        : resolved via _resolve_corpus
+Config      --> CfgTpl        : reads
+Config      --> CfgOut        : writes
+Config      ..> Util          : uses
+CorpusDispatch ..> Adapter    : returns
+Adapter <|.. LS
+Adapter <|.. SW
+
+@enduml

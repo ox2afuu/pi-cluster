@@ -1,0 +1,56 @@
+@startuml 03c-sequence-decoder
+title PocketSphinx decoder — one utterance
+
+skinparam defaultFontName Menlo
+
+participant "audio (.wav/.flac)" as Audio
+participant "sphinx_fe / libsphinxbase\n(feature extractor)" as FE
+participant "acoustic model\n(HMM, tied CD)" as AM
+participant "language model\n(ARPA n-gram)" as LM
+participant "pronunciation dict\n(<db>.dic)" as Dict
+participant "search graph\n(FSG/LM over HMMs)" as Graph
+participant "Viterbi search\n(ps_search_t)" as Viterbi
+participant "backtrace + lattice" as BT
+participant "word_align.pl\n(scoring)" as Align
+participant "result (.match, WER)" as Result
+
+== build-time ==
+
+AM -> Graph : HMM state definitions, senones,\ntransition probabilities
+LM -> Graph : n-gram word probs (ARPA)
+Dict -> Graph : word → phone sequence
+note right of Graph
+  Search graph composition happens once at
+  decoder init and is cached; constructed from
+  the LM expanded over the dictionary,
+  with HMM state stubs under each phone.
+end note
+
+== per-utterance ==
+
+Audio -> FE : samples (PCM 16 kHz mono)
+FE -> FE : window, pre-emphasis, FFT,\nmel filter bank, DCT → MFCC
+FE -> FE : apply CMN, LDA, MLLT\n(if trained)
+FE -> Viterbi : feature frames (39-dim)
+
+Viterbi -> Graph : query state scores
+loop for each frame
+    Viterbi -> AM : p(o_t | state_i) via GMM
+    Viterbi -> Graph : transition scores
+    Viterbi -> Viterbi : dynamic programming\ntoken pass; beam prune (DEC_CFG_BEAMWIDTH)
+end
+
+Viterbi -> BT : best state sequence + lattice
+BT -> BT : phone → word recovery\n(via dict lookup)
+BT -> Result : hypothesis string + lattice
+
+Result -> Align : (hyp, ref)
+Align -> Align : Levenshtein edit distance on words
+Align -> Result : WER, SER, alignment string
+note right of Align
+  WER = (substitutions + deletions + insertions)
+        / reference word count
+  SER = utterances with ANY word error / total
+end note
+
+@enduml

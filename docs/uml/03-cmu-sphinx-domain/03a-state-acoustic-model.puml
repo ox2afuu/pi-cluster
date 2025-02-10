@@ -1,0 +1,82 @@
+@startuml 03a-state-acoustic-model
+title CMU Sphinx — acoustic model lifecycle across the 13-step pipeline
+
+skinparam defaultFontName Menlo
+skinparam state {
+    BackgroundColor #FAFAFA
+    BorderColor Black
+    ArrowColor Black
+}
+
+[*] --> Verified : 00.verify/verify_all.pl
+
+state "00. Verified corpus" as Verified {
+    Verified : fileids, transcription, dict, phone\nexist and are consistent
+}
+
+state "01–02. Feature-space transforms\n(only if CFG_LDA_MLLT=yes)" as Xforms {
+    Xforms : Train LDA matrix and MLLT transform.\nArtifacts: <db>.lda, <db>.mllt.\nApplied during every later feature read.
+}
+
+Verified --> Xforms : 01.lda_train/slave_lda.pl
+Xforms --> XformsDone : 02.mllt_train/slave_mllt.pl
+state "02. transforms ready" as XformsDone
+
+XformsDone --> CodebookReady : 05.vector_quantize/slave.VQ.pl
+state "05. Codebook / VQ" as CodebookReady {
+    CodebookReady : Vector-quantized mean/var codebook\n(used for CFG_HMM_TYPE = .semi. only)
+}
+
+CodebookReady --> FlatCIHMM : 10.falign_ci_hmm/slave_ci.pl
+state "10–11. Flat CI HMM" as FlatCIHMM {
+    FlatCIHMM : Context-independent HMM initialised from\nflat start; force-aligned against transcripts
+}
+
+FlatCIHMM --> VTLN : 12.vtln_align\n(CFG_VTLN=yes)
+state "12. VTLN warp factors per speaker" as VTLN {
+    VTLN : Vocal-tract length normalization warp\nfactor estimated per speaker
+}
+VTLN --> CIHMM_BW
+
+state "20. CI HMM (Baum-Welch trained)" as CIHMM_BW {
+    CIHMM_BW : Context-independent HMM trained to\nconvergence via forward-backward EM
+}
+
+FlatCIHMM --> CIHMM_BW : 20.ci_hmm/slave_convg.pl\n(if VTLN skipped)
+
+CIHMM_BW --> UntiedCD : 30.cd_hmm_untied/slave_convg.pl
+state "30. Untied CD HMM" as UntiedCD {
+    UntiedCD : Context-dependent (triphone) HMM,\nper-state Gaussians, NOT yet tied
+}
+
+UntiedCD --> TreeBuilt : 40.buildtrees/slave.treebuilder.pl
+state "40. Decision trees" as TreeBuilt {
+    TreeBuilt : Phonetic decision trees clustered\nover state statistics
+}
+
+TreeBuilt --> TreePruned : 45.prunetree/slave.state_tying.pl
+state "45. Pruned / tied trees" as TreePruned {
+    TreePruned : Leaves pruned to CFG_N_TIED_STATES;\nsenones defined
+}
+
+TreePruned --> TiedCD : 50.cd_hmm_tied/slave_convg.pl
+state "50. Tied CD HMM (Baum-Welch to convergence)" as TiedCD {
+    TiedCD : Final tied-state context-dependent HMM.\nDirectory: model_parameters/<db>.cd_cont_<N>/
+}
+
+TiedCD --> Interpolated : 90.deleted_interpolation/deleted_interpolation.pl\n(only if CFG_HMM_TYPE = .semi.)
+state "90. Deleted interpolation" as Interpolated {
+    Interpolated : Merges CI and CD parameter estimates\nto stabilise semi-continuous HMMs
+}
+
+Interpolated --> [*]
+TiedCD --> [*] : (continuous HMM path skips 90)
+
+note right of TiedCD
+  This is the model fed into
+  pocketsphinx at decode time.
+  Files: means, variances, mixture_weights,
+  transition_matrices, mdef.
+end note
+
+@enduml

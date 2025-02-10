@@ -1,0 +1,61 @@
+@startuml 05c-sequence-cross-cluster-train
+title Cross-cluster training — one experiment, two Super6c clusters
+
+skinparam defaultFontName Menlo
+
+actor Operator
+participant "sphinx.sh\n(on dalmasca)" as Sh
+participant "Queue::Slurm" as QS
+participant "slurmctld_1\n(federated)" as C1
+participant "slurmctld_2\n(federated)" as C2
+participant "worker in Super6c #1" as WA
+participant "worker in Super6c #2" as WB
+database "MinIO\n(artifacts)" as Min
+database "Postgres\n(registry)" as PG
+
+Operator -> Sh : sphinx train experiments/001\n--federate=both
+Sh -> PG : register experiment\n(cfg hash, owner, origin=cluster_1)
+Sh -> QS : launch per-step partitions
+
+loop each partition submitted by slave_convg.pl
+    QS -> C1 : sbatch --parsable \\\n  -M federation  <wrapper>
+    note right of C1
+      With federation on, slurmctld_1 sees both
+      cluster's resources and can schedule on either.
+    end note
+    alt resource available in #1
+        C1 -> WA : dispatch
+        WA -> Min : fetch .mfc (by sha256)\n(if not cached locally)
+        WA -> WA : baum_welch, emit accumulator
+        WA -> Min : put accumulator-shard
+        WA --> C1 : COMPLETED
+    else scheduled on #2
+        C1 -> C2 : forward
+        C2 -> WB : dispatch
+        WB -> Min : fetch .mfc
+        WB -> WB : baum_welch
+        WB -> Min : put accumulator-shard
+        WB --> C2 : COMPLETED
+        C2 --> C1 : state update
+    end
+end
+
+Sh -> QS : aggregate step
+QS -> Min : fetch all accumulator shards\n(regardless of origin cluster)
+QS -> QS : norm + M-step → updated model
+QS -> Min : put updated model (sha256)
+QS -> PG : update row: model_hash=...
+
+' repeat for 13 steps
+
+Sh -> PG : mark experiment trained;\nstore final model hash
+Sh -> Operator : report; any head on the federation\ncan now `sphinx decode` using model_hash
+
+note right of Min
+  Artifact addressing by content hash means it
+  literally does not matter which cluster wrote
+  the bytes — any cluster can read them.
+  Avoids a federation-wide shared filesystem.
+end note
+
+@enduml

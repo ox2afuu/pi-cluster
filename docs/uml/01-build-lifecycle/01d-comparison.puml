@@ -1,0 +1,82 @@
+@startuml 01d-comparison
+title Docker vs Podman build paths — deployment comparison
+
+skinparam defaultFontName Menlo
+skinparam component {
+    BackgroundColor #FAFAFA
+    BorderColor Black
+}
+
+left to right direction
+
+package "Host (operator's laptop)" {
+    folder "ivaliceCluster/" as Repo {
+        [scripts/build.sh] as Build
+        [scripts/_pigen-podman.sh] as Helper
+        [configs/config.base] as Config
+        folder "stages/" as Stages
+        folder "assets/" as Assets
+        folder "pi-gen/\n(upstream submodule)" as PiGen
+        folder "pi-gen/deploy/" as Deploy
+    }
+}
+
+package "Stock Docker path (NOT used)" #FFF0F0 {
+    [pi-gen/build-docker.sh\n(upstream)] as BD
+    [Docker daemon] as DD
+    component "pi-gen container\n(Docker)" as ContainerD {
+        note top of ContainerD : bind: /config only\nmissing: /stages, /assets
+    }
+}
+
+package "ivaliceCluster Podman path (current)" #F0FFF0 {
+    [scripts/_pigen-podman.sh\nrun_pigen()] as RP
+    [podman-machine VM\n(macOS)] as VM
+    [podman] as P
+    component "pi-gen container\n(Podman, privileged)" as ContainerP {
+        note top of ContainerP : bind: /config, /stages, /assets\nfull ivaliceCluster tree visible
+    }
+}
+
+Build --> Helper
+Build --> Config
+Helper --> RP : run_pigen(config)
+
+' Docker path (shown for contrast)
+RP .[#gray].> BD : NOT used
+BD .[#gray].> DD
+DD .[#gray].> ContainerD
+ContainerD .[#gray].> Deploy : no custom stages →\nimage lacks Ivalice rootfs
+
+' Podman path (actual)
+RP --> VM : clear stale loops\n(ssh + losetup -d)
+RP --> P : podman build\npodman run
+P --> ContainerP
+ContainerP --> PiGen : read stages + Dockerfile
+ContainerP --> Stages : /stages (bind)
+ContainerP --> Assets : /assets (bind)
+ContainerP --> Deploy : write *.img
+
+note right of BD
+  **Why stock Docker path is unsuitable:**
+  1. build-docker.sh's "rootless" grep misfires
+     against rootful podman info.
+  2. Only bind-mounts the config file; our stages
+     and assets live outside pi-gen/.
+  3. No hook to clear podman-machine stale loop
+     devices or patch util-linux 2.41 losetup -f.
+end note
+
+note right of ContainerP
+  **Why Podman path works:**
+  - Three bind mounts expose the whole
+    ivaliceCluster tree.
+  - Helper script enforces rootful mode
+    on macOS and cleans the VM kernel
+    state before build.
+  - Patches pi-gen/scripts/common for the
+    util-linux 2.41 losetup -f annotation
+    before `podman build` bakes it in.
+end note
+
+@enduml

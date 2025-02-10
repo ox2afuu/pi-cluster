@@ -1,0 +1,84 @@
+@startuml 03e-dataflow-e2e
+title End-to-end ASR dataflow — from raw audio to WER
+
+skinparam defaultFontName Menlo
+skinparam component {
+    BackgroundColor #FAFAFA
+    BorderColor Black
+}
+
+left to right direction
+
+package "Training corpus" {
+    artifact "audio\n(.flac / .wav)" as TrainAudio
+    artifact "transcripts\n(word-level)" as TrainTx
+}
+
+package "Decode corpus" {
+    artifact "audio" as DecAudio
+    artifact "reference\ntranscripts" as RefTx
+}
+
+package "Feature extraction" {
+    [sphinx_fe] as FE
+}
+
+package "Language modelling" {
+    artifact "full transcripts\n(concatenated)" as LMText
+    [CMU SLM toolkit\n(text2wfreq →\nwfreq2vocab →\ntext2idngram →\nidngram2lm)] as SLM
+    artifact "ARPA LM\n(n-gram)" as ARPA
+}
+
+package "Pronunciation" {
+    artifact "lexicon.txt\n(word → phones)" as Dict
+}
+
+package "Acoustic model training\n(sphinxtrain, 13 steps)" {
+    [Flat start →\nCI HMM →\nCD HMM →\nTree / tie →\nCD tied HMM] as AMT
+    artifact "AM\n(means, vars,\nmixture wts,\ntransitions)" as AM
+}
+
+package "Decoding" {
+    [pocketsphinx_batch] as PS
+    artifact "hypothesis\n(.match)" as Hyp
+}
+
+package "Scoring" {
+    [word_align.pl] as Align
+    artifact "WER / SER" as WER
+}
+
+TrainAudio  --> FE    : audio frames
+TrainTx     --> Dict  : OOV check
+FE          --> AMT   : MFCC features (.mfc)
+Dict        --> AMT   : phone inventory
+TrainTx     --> AMT   : forced alignment targets
+AMT         --> AM
+TrainTx     --> LMText
+LMText      --> SLM
+SLM         --> ARPA
+
+DecAudio    --> FE    : same feature pipeline
+FE          --> PS    : MFCC features (.mfc)
+AM          --> PS    : acoustic scores p(o|s)
+ARPA        --> PS    : word-sequence probabilities
+Dict        --> PS    : word → phone expansion
+
+PS          --> Hyp
+Hyp         --> Align
+RefTx       --> Align
+Align       --> WER
+
+note bottom of AMT
+  **Training requires:** features over training audio,
+  transcripts for those files, and a dict that covers
+  every word in the transcripts (OOVs are dropped).
+end note
+
+note bottom of PS
+  **Decoding requires:** the same feature pipeline,
+  the trained AM, an ARPA LM, and the dict. Produces a
+  best-path word sequence plus a confidence lattice.
+end note
+
+@enduml

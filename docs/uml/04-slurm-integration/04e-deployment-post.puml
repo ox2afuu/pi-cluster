@@ -1,0 +1,97 @@
+@startuml 04e-deployment-post
+title Post-integration deployment view (after Phases 1–3)
+
+skinparam defaultFontName Menlo
+
+node "dalmasca (head)\naarch64, 7800 MB" as Head {
+    artifact "slurmctld.service" as SC
+    artifact "munge.service" as MH
+    artifact "nfs-server.service" as NFSS
+    artifact "ivalice-postboot-ansible.service" as APB
+    artifact "scripts/perl/Queue/Slurm.pm" as QS
+    folder "/srv/ivalice/ (exported)" as SrvHead {
+        folder "sphinx-asr/" as ShHead {
+            artifact "sphinx.sh"
+            artifact "scripts/*.py + perl/Queue/Slurm.pm"
+            artifact "vendor/ (sphinxtrain, pocketsphinx,\n         cmu_toolkit)"
+            artifact "bin/aarch64/\n(built by Ansible)"
+            artifact ".venv/\n(bundled wheels)"
+            artifact "corpus/\nexperiments/NNN/"
+        }
+    }
+}
+
+node "archadia (worker)\n10.42.0.11, 4×aarch64, 7800 MB" as W1 {
+    artifact "slurmd.service" as S1
+    artifact "munge.service" as M1
+    artifact "nfs4 automount" as NF1
+    folder "/srv/ivalice/ (mount)" as SrvW1
+}
+
+node "rozarria .12" as W2 {
+    artifact "slurmd" as S2
+    artifact "munge" as M2
+    folder "/srv/ivalice/ (mount)" as SrvW2
+}
+
+node "bhujerba .13" as W3 {
+    artifact "slurmd" as S3
+    artifact "munge" as M3
+    folder "/srv/ivalice/ (mount)" as SrvW3
+}
+
+node "nabradia .14" as W4 {
+    artifact "slurmd" as S4
+    artifact "munge" as M4
+    folder "/srv/ivalice/ (mount)" as SrvW4
+}
+
+node "kerwon .15" as W5 {
+    artifact "slurmd" as S5
+    artifact "munge" as M5
+    folder "/srv/ivalice/ (mount)" as SrvW5
+}
+
+cloud "L2 switch\n/24 airgapped" as L2
+
+SC -- L2 : 6817
+S1 -- L2 : 6818
+S2 -- L2 : 6818
+S3 -- L2 : 6818
+S4 -- L2 : 6818
+S5 -- L2 : 6818
+NFSS -- L2 : 2049
+NF1 -- L2
+MH -- L2
+M1 -- L2
+M2 -- L2
+M3 -- L2
+M4 -- L2
+M5 -- L2
+
+SrvHead <- SrvW1 : nfs4 mount\n(same tree)
+SrvHead <- SrvW2
+SrvHead <- SrvW3
+SrvHead <- SrvW4
+SrvHead <- SrvW5
+
+APB --> SC : enable + start
+APB --> NFSS : exportfs, enable
+APB --> QS : deploy to\n/srv/ivalice/...
+
+note right of Head
+  **Role dispatch** is already done by
+  ivalice-firstboot.service before Ansible
+  runs: head enables slurmctld + nfs-server,
+  workers enable slurmd. The postboot Ansible
+  layer is what wires NFS + sphinx-asr on top.
+end note
+
+note right of W1
+  Workers are otherwise identical. They never
+  run `sphinx` directly — they receive
+  sbatch-dispatched jobs whose working directory
+  is on the shared /srv/ivalice mount.
+end note
+
+@enduml

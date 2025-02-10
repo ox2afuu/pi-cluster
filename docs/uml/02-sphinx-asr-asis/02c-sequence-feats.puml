@@ -1,0 +1,60 @@
+@startuml 02c-sequence-feats
+title sphinx feats <corpus> <split> — audio → .mfc
+
+skinparam defaultFontName Menlo
+
+actor User
+participant "sphinx.sh" as Sh
+participant "feats.py" as Feats
+participant "ThreadPoolExecutor\n(-j N)" as TPE
+participant "worker thread" as Worker
+participant "sphinx_fe\n(C binary, bin/<arch>)" as FE
+database "corpus/<name>/\n<split>/*.flac" as Audio
+database "corpus/<name>/\n<split>/*.mfc" as Mfc
+
+User -> Sh : sphinx feats librispeech dev-clean -j 4
+Sh -> Feats : $PYTHON scripts/feats.py librispeech dev-clean -j 4
+activate Feats
+
+Feats -> Feats : load corpus.yml (audio_format, sample_rate,\nnum_filt, lo_filt, hi_filt, cmn)
+Feats -> Feats : walk audio tree, enumerate input files
+
+loop skip-existing filter
+    Feats -> Mfc : stat *.mfc
+    note right: skip if exists AND size > 4 bytes
+end
+
+Feats -> TPE : submit one future per audio file\n(max_workers = N or os.cpu_count())
+activate TPE
+
+par 4 concurrent workers
+    TPE -> Worker : run(audio_file)
+    activate Worker
+    Worker -> Audio : read <file>.flac
+    Worker -> FE : sphinx_fe -c ... -i <file> -o <file>.mfc
+    activate FE
+    FE -> FE : resample/decode via SoX\n(if audio_type=sox)
+    FE -> FE : window, pre-emphasis, FFT,\nmel filterbank, DCT → MFCC
+    FE -> Mfc : write <file>.mfc
+    deactivate FE
+    Worker --> TPE : done
+    deactivate Worker
+end
+
+TPE --> Feats : all futures complete
+deactivate TPE
+
+Feats -> Feats : print count + elapsed
+Feats --> Sh : exit 0
+deactivate Feats
+Sh --> User : "wrote N .mfc files"
+
+note over Audio, Mfc
+  **Current parallelism is SINGLE-MACHINE.**
+  `-j N` scales with local cores only.
+  Cluster path (Phase 1): whole command runs
+  inside one sbatch job on a single worker.
+  Future (Phase 3+): sbatch --array over chunks.
+end note
+
+@enduml

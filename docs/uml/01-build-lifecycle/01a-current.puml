@@ -1,0 +1,86 @@
+@startuml 01a-current
+title ivaliceCluster — end-to-end build flow (scripts/build.sh)
+
+skinparam activity {
+    BackgroundColor #FAFAFA
+    BorderColor Black
+    ArrowColor Black
+    DiamondBackgroundColor #EEEEEE
+}
+skinparam defaultFontName Menlo
+
+start
+
+:operator runs **scripts/build.sh** on host macOS;
+note right
+  Host must have: podman (rootful machine),
+  git, rsync, and the operator's SSH pubkey
+  at ~/.ssh/headnode-key.pub (or IVALICE_PUBKEY_PATH).
+end note
+
+:source scripts/_pigen-podman.sh
+(defines REPO_ROOT, PI_GEN_DIR, run_pigen());
+
+partition "Idempotent pre-build steps" {
+    :./scripts/download-assets.sh
+    (k3s binary, airgap images, oh-my-zsh,
+     sphinx aarch64 wheels — skipped if present);
+    :./scripts/generate-token.sh
+    (k3s cluster token);
+    :./scripts/generate-ssh-key.sh
+    (ivalice-cluster + ivalice-cluster.pub);
+    :./scripts/generate-munge-key.sh
+    (assets/munge.key);
+}
+
+partition "Resolve SSH pubkeys on host" {
+    :read operator pubkey (IVALICE_PUBKEY_PATH
+    or ~/.ssh/headnode-key.pub);
+    if (pubkey missing?) then (yes)
+        :**FAIL** — refuse to build;
+        stop
+    else (no)
+    endif
+    :concat operator pubkey + assets/ivalice-cluster.pub
+    into **PUBKEY_SSH_FIRST_USER** env var;
+}
+
+:touch pi-gen/stage{3,4,5}/SKIP + SKIP_IMAGES
+(skip upstream desktop stages);
+
+partition "run_pigen(configs/config.base)" {
+    :require_podman_machine()
+    — podman installed, responsive, rootful on macOS;
+    :ensure_clean_podman_state()
+    — clear stale (lost)/(deleted) loop devices in VM;
+    :patch_pigen_losetup_sanitize()
+    — sed pi-gen/scripts/common for util-linux 2.41;
+    :podman build -t pi-gen
+    --build-arg BASE_IMAGE=debian:trixie;
+    :podman run --privileged
+    --volume /config,/stages,/assets
+    -e GIT_HASH, PUBKEY_SSH_FIRST_USER;
+    note right
+        Inside container:
+        1. dpkg-reconfigure qemu-user-binfmt
+        2. mount binfmt_misc
+        3. final-pass loop cleanup
+        4. cd /pi-gen && ./build.sh -c /config
+        5. rsync work/*/build.log deploy/
+    end note
+    :podman cp container:/pi-gen/deploy/. → host deploy/;
+    :podman logs → pi-gen/logs/build-podman.log;
+    if (*.img present in deploy/?) then (yes)
+        :podman rm -v pigen_work
+        (unless PRESERVE_CONTAINER=1);
+    else (no)
+        :**FAIL** — no .img produced;
+        stop
+    endif
+}
+
+:print "Done. Images are in pi-gen/deploy/";
+
+stop
+
+@enduml

@@ -1,0 +1,69 @@
+@startuml 02e-sequence-decode
+title sphinx decode <exp_dir> — pocketsphinx batch decode (today)
+
+skinparam defaultFontName Menlo
+
+actor User
+participant "sphinx.sh" as Sh
+participant "decode.py" as Dec
+participant "progress thread\n(poll_progress)" as Prog
+participant "perl slave.pl\n(decode driver)" as Slave
+participant "pocketsphinx_batch\n(C binary)" as PS
+participant "word_align.pl\n(scoring)" as Align
+database "<exp_dir>/\nresult/" as Result
+database "<exp_dir>/etc/\nsphinx_train.cfg" as Cfg
+
+User -> Sh : sphinx decode experiments/001
+Sh -> Dec : $PYTHON scripts/decode.py experiments/001
+activate Dec
+
+Dec -> Cfg : read DEC_CFG_NPART (default 1)
+Dec -> Result : delete stale *.match, *.matchseg
+Dec -> Dec : count expected utterances\n(from etc/<db>_decode.fileids)
+
+par decode + progress
+    Dec -> Prog : start thread (result_dir, db_name, npart, total)
+    activate Prog
+    loop every 5s
+        Prog -> Result : count lines across <db>-i-npart.match
+        Prog -> User : print waitbar(completed, total)
+    end
+else
+    Dec -> Slave : subprocess.Popen(perl slave.pl ...)
+    activate Slave
+    Slave -> Cfg : read CFG, DEC_CFG_*
+    loop i = 1..DEC_CFG_NPART (internal; single machine)
+        Slave -> PS : fork pocketsphinx_batch\non partition i/npart
+        activate PS
+        PS -> PS : build/load search graph (LM + dict + HMM)
+        PS -> PS : Viterbi decode each utt
+        PS -> Result : write <db>-i-npart.match
+        deactivate PS
+    end
+    Slave -> Align : word_align.pl <ref> <hyp>
+    activate Align
+    Align -> Result : write <db>.match (combined)
+    Align --> Slave : ... WORD ERROR RATE X.XX% ...
+    deactivate Align
+    Slave --> Dec : stdout/stderr lines
+    deactivate Slave
+end
+
+Dec -> Prog : stop_event.set()
+deactivate Prog
+
+Dec -> Dec : grep slave output for\n"WORD ERROR" / "SENTENCE ERROR"
+Dec --> Sh : print WER/SER; exit 0
+deactivate Dec
+
+Sh --> User : "decode complete — WER xx.xx%"
+
+note over Slave, PS
+  **Today**: partitioning is **internal to slave.pl**
+  and runs on ONE machine (fork per partition).
+  Cluster path (Phase 3): decode.py replaces slave.pl,
+  submits sbatch --array=1-NPART decode_partition.sh,
+  runs word_align locally afterward.
+end note
+
+@enduml

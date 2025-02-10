@@ -1,0 +1,86 @@
+@startuml 04b-sequence-train-slurm
+title sphinx train — Queue::Slurm partition submission (Phase 2)
+
+skinparam defaultFontName Menlo
+
+actor Operator
+participant "sphinx.sh\non head" as Sh
+participant "train.py" as Train
+participant "perl slave_convg.pl\n(one of 13 steps)" as Slave
+participant "Queue::Slurm\n(PERL5LIB)" as QS
+participant "sbatch" as SBatch
+participant "slurmctld" as Ctl
+participant "slurmd\n(a worker)" as D
+participant "perl baum_welch.pl\n(on worker)" as BW
+database "/srv/ivalice/sphinx-asr/\n(NFS)" as NFS
+participant "sacct / scontrol" as SAcct
+
+Operator -> Sh : sphinx train experiments/001
+Sh -> Sh : run_script("train.py", ...)\ndetect sbatch → submit outer job
+Sh -> SBatch : sbatch --export=... sphinx_job.sh\n  CMD=train.py ARGS=experiments/001
+
+SBatch -> Ctl : queue outer job
+Ctl -> D : dispatch to worker
+activate D
+D -> Train : run train.py under venv
+activate Train
+Train -> NFS : read exp_dir/experiment.yml\nSTEPS list
+loop for each step in STEPS (13 total)
+    Train -> Train : export SPHINX_SLURM_{TIME,MEM_PER_JOB,...}\nfrom step_overrides
+    Train -> Slave : perl vendor/.../slave_convg.pl
+    activate Slave
+    Slave -> NFS : read etc/sphinx_train.cfg\n(CFG_QUEUE_TYPE = Queue::Slurm)
+    Slave -> QS : require Queue::Slurm; new()
+    activate QS
+
+    loop i = 1..CFG_NPART
+        Slave -> QS : submit_job({command: [baum_welch i NPART ngau], ...})
+        QS -> NFS : write qmanager/<name>.sh wrapper
+        QS -> SBatch : sbatch --parsable --job-name=<name>\n  --time=... --mem=... \\\n  --export=ALL,SPHINX_ROOT=...,PERL5LIB=...
+        SBatch -> Ctl : enqueue partition job
+        Ctl --> QS : JOBID
+        QS --> Slave : jobid
+    end
+
+    loop waitfor each submitted jobid
+        Slave -> QS : waitfor_job(jobid, timeout, interval)
+        QS -> SAcct : scontrol show job JOBID\n(live state)
+        note right of SAcct
+          Poll every 5s.
+          scontrol purges finished jobs quickly;
+          fall back to `sacct -j ... -o State`
+          once scontrol returns nothing.
+        end note
+        alt state == COMPLETED
+            SAcct --> QS : JobState=COMPLETED
+            QS --> Slave : 0 (success)
+        else FAILED / TIMEOUT / OOM / NODE_FAIL
+            SAcct --> QS : JobState=FAILED
+            QS --> Slave : 1 (fatal)
+            Slave --> Train : nonzero exit
+            Train -> Operator : print errorlog path; sys.exit(1)
+        end
+    end
+
+    Slave -> NFS : write accumulators, updated model
+    Slave --> Train : exit 0
+    deactivate Slave
+
+    Train -> Train : validate_step artifacts
+end
+
+par worker-side per partition
+    Ctl -> D : dispatch partition job
+    D -> BW : execute submitted wrapper\n(from qmanager/<name>.sh)
+    BW -> NFS : read mfc features\nread current HMM params
+    BW -> NFS : write bwaccumdir/<i>/*.acc
+    BW --> D : exit 0
+    D -> SAcct : update state → COMPLETED
+end
+deactivate D
+
+Train --> Sh : exit 0
+deactivate Train
+Sh --> Operator : "training complete"
+
+@enduml

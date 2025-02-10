@@ -1,0 +1,93 @@
+@startuml 05b-component-federated
+title Federated layout — 2+ Super6c clusters + arbitrary nodes on L2
+
+skinparam defaultFontName Menlo
+skinparam component {
+    BackgroundColor #FAFAFA
+    BorderColor Black
+}
+
+package "Super6c #1 (ivalice)" {
+    node "dalmasca (head)" as H1 {
+        [slurmctld_1]
+        [slurmdbd (federated)] as DBD
+        [munge (shared key)] as MH1
+        [nfs-server (local)] as NFSH1
+        [slurmrestd] as RS1
+    }
+    node "workers .11-.15" as W1N
+}
+
+package "Super6c #2 (dalmaya)" {
+    node "dalmaya (head)" as H2 {
+        [slurmctld_2]
+        [munge (shared key)] as MH2
+        [nfs-server (local)] as NFSH2
+        [slurmrestd] as RS2
+    }
+    node "workers .21-.25" as W2N
+}
+
+package "Arbitrary L2 node" as Arb {
+    node "some-beefy-rig\n(x86_64 or aarch64)" as X {
+        [slurmd] as SX
+        [munge (shared key)] as MX
+        [nfs client (one of the heads)] as NX
+    }
+}
+
+package "Shared services (new)" {
+    database "MinIO\n(artifacts, models, features)" as Min
+    database "Postgres\n(experiment registry)" as PG
+    [Federation controller\n(slurmdbd federation OR\nexternal meta-scheduler)] as FedCtrl
+}
+
+cloud "L2 switch / routed subnet" as L2
+
+H1 -- L2
+H2 -- L2
+X  -- L2
+Min -- L2
+PG  -- L2
+
+DBD --> FedCtrl : federation control plane
+RS1 --> FedCtrl
+RS2 --> FedCtrl
+
+slurmctld_1 <--> slurmctld_2 : federated scheduling\n(native Slurm federation OR\nmeta-scheduler over REST)
+
+W1N --> NFSH1 : cluster-local NFS
+W2N --> NFSH2
+NX  --> NFSH1 : (example mount;\none cluster at a time)
+
+H1 <--> Min : s3-compatible\nget/put
+H2 <--> Min
+X  <--> Min
+H1 <--> PG
+H2 <--> PG
+
+note right of FedCtrl
+  **Two viable control-plane options (to be chosen
+  based on real traffic):**
+  (A) Native Slurm federation via slurmdbd,
+      enabling `sbatch -M cluster_2`.
+  (B) External meta-scheduler that submits to each
+      cluster's slurmrestd over HTTP.
+  Option A is simpler while homogeneous; option B
+  scales to non-Slurm compute later.
+end note
+
+note bottom of Min
+  **Content-hashed artifact store.** Models, .mfc,
+  decode results keyed by sha256 so any cluster can
+  hydrate without knowing where the bytes were made.
+end note
+
+note bottom of PG
+  **Experiment registry.** Row per experiment:
+  name, cfg hash, model hash, decode result hash,
+  owner, origin cluster. Drives the "any head can
+  show any experiment" UX.
+end note
+
+@enduml
