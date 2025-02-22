@@ -1,0 +1,47 @@
+# configs/config.base
+#
+# Self-contained pi-gen config for the Ivalice unified image. Read by pi-gen
+# inside the build container, so every path here must be CONTAINER-relative
+# or come from the environment.
+#
+# PUBKEY_SSH_FIRST_USER is resolved on the host by scripts/build.sh and
+# forwarded into the container as an env var (the build container has no
+# access to the operator's ~/.ssh/). Config must not try to read host paths.
+
+# Build a Debian 13 Trixie arm64 image (assumes pi-gen is on the 'arm64' branch).
+RELEASE="trixie"
+
+# Don't produce .zip artefacts — the raw .img is what we flash.
+DEPLOY_ZIP=0
+
+# SSH on by default; the first user gets the pubkey(s) from the env.
+ENABLE_SSH=1
+
+# Locale / keyboard. Adjust TIMEZONE_DEFAULT to your location.
+LOCALE_DEFAULT="en_US.UTF-8"
+TIMEZONE_DEFAULT="America/Chicago"
+KEYBOARD_KEYMAP="us"
+KEYBOARD_LAYOUT="English (US)"
+
+# First user. FIRST_USER_PASS is plaintext per pi-gen convention (piped into
+# chpasswd during build). CHANGE THIS BEFORE FIRST BUILD — the default ships
+# in userconf.txt as a SHA-512 crypt otherwise.
+FIRST_USER_NAME="ivalice"
+FIRST_USER_PASS="changeme-ivalice"
+DISABLE_FIRST_BOOT_USER_RENAME=1
+
+# Operator + cluster SSH pubkeys, exported by scripts/build.sh on the host.
+# Fail loudly if build.sh forgot to set it (the `:?msg` form aborts sourcing).
+PUBKEY_SSH_FIRST_USER="${PUBKEY_SSH_FIRST_USER:?PUBKEY_SSH_FIRST_USER not exported; run via scripts/build.sh}"
+# Allow console password fallback if the key handshake ever goes sideways.
+PUBKEY_ONLY_SSH=0
+
+# No WiFi, no APT proxy — this cluster is airgapped.
+# pi-gen tests `[ -v WPA_COUNTRY ]` (set-vs-unset, not empty-check), so leaving
+# WPA_COUNTRY="" would trip stage2/02-net-tweaks/01-run.sh into running
+# `raspi-config nonint do_wifi_country ""` and failing. Unset outright.
+unset WPA_ESSID WPA_PASSWORD WPA_COUNTRY
+APT_PROXY=
+
+IMG_NAME="ivalice"
+STAGE_LIST="stage0 stage1 stage2 ../stages/stage-ivalice-base"
