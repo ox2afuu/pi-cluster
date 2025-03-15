@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ivalice-smoke
+  namespace: default
+spec:
+  restartPolicy: Never
+  containers:
+  - name: pause
+    image: {{ smoke_image }}

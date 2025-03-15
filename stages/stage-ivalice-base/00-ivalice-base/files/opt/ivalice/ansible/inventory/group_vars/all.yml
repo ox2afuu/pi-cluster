@@ -1,0 +1,68 @@
+---
+# Cluster identity
+cluster_name: ivalice
+head_hostname: dalmasca
+head_ip: 10.42.0.1
+worker_hostnames:
+  - archadia
+  - rozarria
+  - bhujerba
+  - nabradia
+  - kerwon
+worker_ips:
+  - 10.42.0.11
+  - 10.42.0.12
+  - 10.42.0.13
+  - 10.42.0.14
+  - 10.42.0.15
+expected_nodes:
+  - dalmasca
+  - archadia
+  - rozarria
+  - bhujerba
+  - nabradia
+  - kerwon
+
+# Networking / CIDRs
+cluster_cidr: 10.42.0.0/16
+service_cidr: 10.43.0.0/16
+cluster_dns: 10.43.0.10
+node_cidr: 10.42.0.0/24
+
+# API endpoint
+api_server_host: dalmasca
+api_server_port: 6443
+api_server_url: "https://dalmasca:6443"
+api_server_url_ip: "https://10.42.0.1:6443"
+
+# k3s paths
+k3s_binary: /usr/local/bin/k3s
+k3s_install_script: /usr/local/sbin/k3s-install.sh
+k3s_airgap_images: /var/lib/rancher/k3s/agent/images/k3s-airgap-images-arm64.tar.zst
+k3s_server_token: /var/lib/rancher/k3s/server/token
+k3s_node_token: /var/lib/rancher/k3s/server/node-token
+k3s_config_dir: /etc/rancher/k3s
+k3s_config_file: /etc/rancher/k3s/config.yaml
+
+# SSH
+head_ssh_key: /root/.ssh/ivalice-cluster
+remote_user: ivalice
+
+# Markers & logs
+ivalice_state_dir: /var/lib/ivalice
+ivalice_log_dir: /var/log/ivalice
+firstboot_marker: /var/lib/ivalice/firstboot.done
+postboot_marker: /var/lib/ivalice/ansible-postboot.done
+node_conf: /boot/firmware/ivalice-node.conf
+exported_node_token: /var/lib/ivalice/node-token
+
+# Smoke test
+smoke_image: docker.io/rancher/mirrored-pause:3.6
+
+# Slurm
+slurm_config: /etc/slurm/slurm.conf
+munge_key: /etc/munge/munge.key
+slurm_state_dir: /var/spool/slurmctld
+slurm_spool_dir: /var/spool/slurmd
+slurm_log_dir: /var/log/slurm
+slurm_partition: default

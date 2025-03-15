@@ -1,0 +1,11 @@
+# Copy to ivalice-node.conf and fill in. Missing file = firstboot refuses (loud fail).
+# NODE_ROLE: exactly one of head|worker. Exactly one 'head' per cluster.
+NODE_ROLE=worker
+# NODE_HOSTNAME: 'dalmasca' (head) OR one of archadia, rozarria, bhujerba, nabradia, kerwon (workers)
+NODE_HOSTNAME=archadia
+# NODE_IP: CIDR form. Head=10.42.0.1/24. Workers:
+#   archadia=10.42.0.11/24, rozarria=10.42.0.12/24, bhujerba=10.42.0.13/24,
+#   nabradia=10.42.0.14/24, kerwon=10.42.0.15/24
+NODE_IP=10.42.0.11/24
+# NODE_K3S: set to 'yes' to enable k3s on this node. Default 'no' (Slurm only).
+NODE_K3S=no

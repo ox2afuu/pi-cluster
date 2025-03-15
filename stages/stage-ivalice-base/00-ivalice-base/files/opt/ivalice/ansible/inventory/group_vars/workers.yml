@@ -1,0 +1,3 @@
+---
+k3s_service: k3s-agent.service
+worker_config_yaml: /etc/rancher/k3s/config.yaml

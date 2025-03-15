@@ -1,0 +1,18 @@
+[Unit]
+Description=Ivalice first-boot personalization (hostname + static IP + role dispatch)
+# We must run before networkd brings up eth0 with the placeholder address,
+# and before cloud-init expands {{hostname}} in /etc/hosts.
+DefaultDependencies=no
+After=local-fs.target systemd-sysusers.service
+Before=network-pre.target cloud-init-local.service shutdown.target
+Wants=network-pre.target
+ConditionPathExists=/boot/firmware/ivalice-node.conf
+ConditionPathExists=!/var/lib/ivalice/firstboot.done
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/ivalice-firstboot.sh
+
+[Install]
+WantedBy=sysinit.target

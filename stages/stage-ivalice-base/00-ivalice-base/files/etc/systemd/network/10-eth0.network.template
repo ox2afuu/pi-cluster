@@ -1,0 +1,11 @@
+[Match]
+Name=eth0
+
+[Network]
+# __STATIC_ADDRESS__ is rewritten at first boot by ivalice-firstboot.sh
+# using the value from /boot/firmware/ivalice-node.conf.
+Address=__STATIC_ADDRESS__
+# No gateway — this cluster is offline.
+# No DNS — mDNS via avahi handles ivalice-*.local resolution.
+IPv6AcceptRA=no
+LinkLocalAddressing=ipv4

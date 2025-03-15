@@ -1,0 +1,23 @@
+[Unit]
+Description=Ivalice post-boot Ansible convergence (head only)
+After=slurmctld.service network-online.target ivalice-firstboot.service
+Requires=slurmctld.service
+Wants=network-online.target
+ConditionPathExists=/var/lib/ivalice/role.head
+ConditionPathExists=!/var/lib/ivalice/ansible-postboot.done
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/usr/local/sbin/ivalice-wait-for-workers.sh
+ExecStart=/opt/ivalice/bin/run-ansible.sh
+ExecStartPost=/bin/bash -c 'date --iso-8601=seconds > /var/lib/ivalice/ansible-postboot.done'
+StandardOutput=append:/var/log/ivalice/ansible.log
+StandardError=append:/var/log/ivalice/ansible.log
+Restart=on-failure
+RestartSec=120
+StartLimitBurst=5
+StartLimitIntervalSec=1800
+
+[Install]
+WantedBy=multi-user.target

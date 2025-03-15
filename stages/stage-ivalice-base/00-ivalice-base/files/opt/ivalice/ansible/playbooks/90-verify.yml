@@ -1,0 +1,6 @@
+---
+- name: Ivalice — cluster verification
+  hosts: head
+  gather_facts: true
+  roles:
+    - role: verify
