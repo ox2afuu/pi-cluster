@@ -1,0 +1,30 @@
+---
+- name: Ensure slurmctld is started and enabled
+  ansible.builtin.systemd:
+    name: slurmctld
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Wait for slurmctld port 6817
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 6817
+    timeout: 60
+
+- name: Ping slurmctld
+  ansible.builtin.command: scontrol ping
+  register: _scontrol_ping
+  changed_when: false
+  failed_when: "'Slurmctld(primary)' not in _scontrol_ping.stdout or 'is UP' not in _scontrol_ping.stdout"
+
+- name: List nodes known to slurmctld
+  ansible.builtin.command: sinfo -N -h -o "%N"
+  register: _sinfo_nodes
+  changed_when: false
+
+- name: Assert slurmctld knows all 5 worker nodes
+  ansible.builtin.assert:
+    that:
+      - _sinfo_nodes.stdout_lines | length >= 5
+    fail_msg: "Expected 5 worker nodes in sinfo, saw {{ _sinfo_nodes.stdout_lines | length }}"

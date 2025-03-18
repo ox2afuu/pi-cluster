@@ -1,0 +1,9 @@
+---
+- name: Ivalice — Slurm compute (workers)
+  hosts: workers
+  gather_facts: true
+  serial: 2
+  any_errors_fatal: false
+  max_fail_percentage: 100
+  roles:
+    - role: slurm_compute

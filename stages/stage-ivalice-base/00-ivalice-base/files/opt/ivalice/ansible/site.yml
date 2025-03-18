@@ -1,0 +1,7 @@
+---
+- import_playbook: playbooks/10-common.yml
+- import_playbook: playbooks/20-slurm-controller.yml
+- import_playbook: playbooks/30-slurm-compute.yml
+- import_playbook: playbooks/40-k3s-server.yml
+- import_playbook: playbooks/50-k3s-agent.yml
+- import_playbook: playbooks/90-verify.yml

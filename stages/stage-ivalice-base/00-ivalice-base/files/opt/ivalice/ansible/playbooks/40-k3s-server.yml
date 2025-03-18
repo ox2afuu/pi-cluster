@@ -1,0 +1,9 @@
+---
+- name: Ivalice head — k3s server (opt-in)
+  hosts: head
+  gather_facts: true
+  # k3s is opt-in per node; the role only runs when the k3s_enabled fact is set
+  # (populated by the common role via /var/lib/ivalice/k3s.enabled).
+  roles:
+    - role: k3s_server
+      when: k3s_enabled | default(false)

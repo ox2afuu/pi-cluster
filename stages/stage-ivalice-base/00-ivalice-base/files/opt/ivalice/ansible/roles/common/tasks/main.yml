@@ -1,0 +1,174 @@
+---
+# Common tasks run against every node in the cluster.
+
+- name: Detect whether k3s is enabled on this node
+  ansible.builtin.stat:
+    path: /var/lib/ivalice/k3s.enabled
+  register: _k3s_marker
+
+- name: Set k3s_enabled fact for this host
+  ansible.builtin.set_fact:
+    k3s_enabled: "{{ _k3s_marker.stat.exists }}"
+
+- name: Stat ivalice-node.conf
+  ansible.builtin.stat:
+    path: "{{ node_conf }}"
+  register: node_conf_stat
+
+- name: Assert ivalice-node.conf exists
+  ansible.builtin.assert:
+    that:
+      - node_conf_stat.stat.exists
+    fail_msg: "{{ node_conf }} is missing on {{ inventory_hostname }}"
+
+- name: Read ivalice-node.conf
+  ansible.builtin.slurp:
+    src: "{{ node_conf }}"
+  register: node_conf_slurp
+
+- name: Assert NODE_ROLE= line present in ivalice-node.conf
+  ansible.builtin.assert:
+    that:
+      - (node_conf_slurp.content | b64decode) is search('(?m)^NODE_ROLE=')
+    fail_msg: "NODE_ROLE= line missing from {{ node_conf }}"
+
+- name: Run hostname -s
+  ansible.builtin.command: hostname -s
+  register: hostname_short
+  changed_when: false
+
+- name: Assert short hostname matches inventory_hostname
+  ansible.builtin.assert:
+    that:
+      - hostname_short.stdout == inventory_hostname
+    fail_msg: "hostname -s reports '{{ hostname_short.stdout }}' but inventory expects '{{ inventory_hostname }}'"
+
+- name: Stat firstboot marker
+  ansible.builtin.stat:
+    path: "{{ firstboot_marker }}"
+  register: firstboot_stat
+
+- name: Assert firstboot marker exists
+  ansible.builtin.assert:
+    that:
+      - firstboot_stat.stat.exists
+    fail_msg: "{{ firstboot_marker }} missing — ivalice-firstboot.service has not completed"
+
+- name: Slurp /etc/hosts
+  ansible.builtin.slurp:
+    src: /etc/hosts
+  register: etc_hosts_slurp
+
+- name: Decode /etc/hosts
+  ansible.builtin.set_fact:
+    etc_hosts_content: "{{ etc_hosts_slurp.content | b64decode }}"
+
+- name: Assert /etc/hosts contains every cluster entry
+  ansible.builtin.assert:
+    that:
+      - etc_hosts_content is search('(?m)^10\.42\.0\.1\s+dalmasca\b')
+      - etc_hosts_content is search('(?m)^10\.42\.0\.11\s+archadia\b')
+      - etc_hosts_content is search('(?m)^10\.42\.0\.12\s+rozarria\b')
+      - etc_hosts_content is search('(?m)^10\.42\.0\.13\s+bhujerba\b')
+      - etc_hosts_content is search('(?m)^10\.42\.0\.14\s+nabradia\b')
+      - etc_hosts_content is search('(?m)^10\.42\.0\.15\s+kerwon\b')
+    fail_msg: "/etc/hosts is missing one or more ivalice cluster entries"
+
+- name: Check podman is installed
+  ansible.builtin.command: podman --version
+  register: podman_version
+  changed_when: false
+  failed_when: podman_version.rc != 0
+
+- name: Ensure /var/log/ivalice exists
+  ansible.builtin.file:
+    path: "{{ ivalice_log_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Ensure /var/lib/ivalice exists
+  ansible.builtin.file:
+    path: "{{ ivalice_state_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Set net.bridge.bridge-nf-call-iptables=1 (posix)
+  ansible.posix.sysctl:
+    name: net.bridge.bridge-nf-call-iptables
+    value: "1"
+    state: present
+    reload: true
+    sysctl_file: /etc/sysctl.d/99-ivalice-k3s.conf
+  register: sysctl_bridge
+  ignore_errors: true
+
+- name: Set net.ipv4.ip_forward=1 (posix)
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    state: present
+    reload: true
+    sysctl_file: /etc/sysctl.d/99-ivalice-k3s.conf
+  register: sysctl_forward
+  ignore_errors: true
+  when: sysctl_bridge is not failed
+
+- name: Fallback — write sysctl.d file directly when ansible.posix unavailable
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-ivalice-k3s.conf
+    mode: "0644"
+    content: |
+      # Managed by ivalice ansible (fallback path)
+      net.bridge.bridge-nf-call-iptables = 1
+      net.ipv4.ip_forward = 1
+  when: sysctl_bridge is failed
+  notify: Reload sysctl
+
+- name: Fallback — apply sysctl immediately
+  ansible.builtin.command: sysctl --system
+  when: sysctl_bridge is failed
+  changed_when: false
+
+- name: Ensure munge service is active
+  ansible.builtin.systemd:
+    name: munge
+    state: started
+    enabled: true
+
+- name: Stat munge key
+  ansible.builtin.stat:
+    path: /etc/munge/munge.key
+  register: _munge_key
+
+- name: Assert munge key is present, mode 0400, owned munge:munge
+  ansible.builtin.assert:
+    that:
+      - _munge_key.stat.exists
+      - _munge_key.stat.mode == '0400'
+      - _munge_key.stat.pw_name == 'munge'
+      - _munge_key.stat.gr_name == 'munge'
+
+- name: Assert slurm.conf is present
+  ansible.builtin.stat:
+    path: /etc/slurm/slurm.conf
+  register: _slurm_conf
+
+- name: Fail if slurm.conf is missing
+  ansible.builtin.assert:
+    that: _slurm_conf.stat.exists
+
+- name: Compute clock delta between controller and target (seconds)
+  ansible.builtin.set_fact:
+    ivalice_clock_delta_seconds: >-
+      {{
+        (
+          (now(utc=true).strftime('%s') | int)
+          - (ansible_date_time.epoch | int)
+        )
+      }}
+
+- name: Assert clock drift is under 5 minutes
+  ansible.builtin.assert:
+    that:
+      - (ivalice_clock_delta_seconds | int | abs) < 300
+    fail_msg: "Clock drift between controller and {{ inventory_hostname }} is {{ ivalice_clock_delta_seconds }}s (>300s)"

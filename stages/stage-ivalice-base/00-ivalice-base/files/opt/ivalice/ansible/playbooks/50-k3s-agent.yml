@@ -1,0 +1,12 @@
+---
+- name: Ivalice workers — k3s agents (opt-in)
+  hosts: workers
+  gather_facts: true
+  serial: 2
+  any_errors_fatal: false
+  max_fail_percentage: 100
+  # k3s is opt-in per node; the role only runs when the k3s_enabled fact is set
+  # (populated by the common role via /var/lib/ivalice/k3s.enabled).
+  roles:
+    - role: k3s_agent
+      when: k3s_enabled | default(false)

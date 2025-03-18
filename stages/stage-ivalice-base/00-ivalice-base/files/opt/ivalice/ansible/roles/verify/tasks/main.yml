@@ -1,0 +1,55 @@
+---
+# Slurm-first verification (always runs). k3s verification is conditional.
+
+- name: Slurm — list node states
+  ansible.builtin.command: sinfo -N -h -o "%N %t"
+  register: _sinfo
+  changed_when: false
+
+- name: Slurm — assert all 5 workers reachable (idle/mix/alloc)
+  ansible.builtin.assert:
+    that:
+      - _sinfo.stdout_lines | length >= 5
+      - _sinfo.stdout_lines | select('search', '(idle|mix|alloc)') | list | length >= 5
+    fail_msg: "sinfo reports: {{ _sinfo.stdout }}"
+
+- name: Slurm — smoke test (srun -N5 hostname)
+  ansible.builtin.command: srun -N5 --ntasks-per-node=1 hostname
+  register: _srun
+  changed_when: false
+  become: true
+  become_user: ivalice
+
+- name: Slurm — assert smoke test returned 5 hostnames
+  ansible.builtin.assert:
+    that:
+      - _srun.stdout_lines | length == 5
+      - (worker_hostnames | difference(_srun.stdout_lines)) | length == 0
+    fail_msg: "srun output: {{ _srun.stdout }}"
+
+# --- k3s (conditional) -----------------------------------------------------
+- name: k3s — get nodes (JSON)
+  ansible.builtin.command: kubectl get nodes -o json
+  register: _k3s_nodes
+  changed_when: false
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when: hostvars[inventory_hostname]['k3s_enabled'] | default(false)
+
+- name: k3s — assert k3s-enabled nodes are Ready
+  ansible.builtin.assert:
+    that:
+      - (_k3s_nodes.stdout | from_json).items | length >= 1
+      - ((_k3s_nodes.stdout | from_json).items
+         | map(attribute='status.conditions')
+         | map('selectattr', 'type', 'equalto', 'Ready')
+         | map('map', attribute='status')
+         | map('first')
+         | list) | unique == ['True']
+    fail_msg: "Not all k3s-enabled nodes are Ready"
+  when: hostvars[inventory_hostname]['k3s_enabled'] | default(false)
+
+# --- postboot marker --------------------------------------------------------
+- name: Write ansible-postboot marker
+  ansible.builtin.shell: date --iso-8601=seconds > /var/lib/ivalice/ansible-postboot.done
+  changed_when: true

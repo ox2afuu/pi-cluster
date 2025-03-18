@@ -1,0 +1,90 @@
+---
+# k3s agent role — runs on each worker, joining it to the head.
+
+- name: Wait for SSH / connection to worker
+  ansible.builtin.wait_for_connection:
+    timeout: 60
+    delay: 5
+
+- name: Stat k3s binary on worker
+  ansible.builtin.stat:
+    path: "{{ k3s_binary }}"
+  register: agent_k3s_bin
+
+- name: Stat airgap images tarball
+  ansible.builtin.stat:
+    path: "{{ k3s_airgap_images }}"
+  register: agent_airgap
+
+- name: Stat cluster token file
+  ansible.builtin.stat:
+    path: "{{ k3s_server_token }}"
+  register: agent_token_stat
+
+- name: Assert required k3s agent assets are present
+  ansible.builtin.assert:
+    that:
+      - agent_k3s_bin.stat.exists
+      - agent_airgap.stat.exists
+      - agent_token_stat.stat.exists
+    fail_msg: "Worker {{ inventory_hostname }} is missing one of: {{ k3s_binary }}, {{ k3s_airgap_images }}, {{ k3s_server_token }}"
+
+- name: Read cluster token
+  ansible.builtin.command: "cat {{ k3s_server_token }}"
+  register: cluster_token_raw
+  changed_when: false
+  no_log: true
+
+- name: Ensure /etc/rancher/k3s exists
+  ansible.builtin.file:
+    path: "{{ k3s_config_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Render /etc/rancher/k3s/config.yaml for agent
+  ansible.builtin.copy:
+    dest: "{{ worker_config_yaml }}"
+    mode: "0600"
+    owner: root
+    group: root
+    content: |
+      server: {{ api_server_url }}
+      token: {{ cluster_token_raw.stdout | trim }}
+      node-name: {{ inventory_hostname }}
+  no_log: true
+  notify: Restart k3s-agent
+
+- name: Stat k3s-agent systemd unit
+  ansible.builtin.stat:
+    path: /etc/systemd/system/k3s-agent.service
+  register: k3s_agent_unit
+
+- name: Install k3s-agent systemd unit via k3s-install.sh if missing
+  ansible.builtin.command: >-
+    env INSTALL_K3S_SKIP_DOWNLOAD=true
+        INSTALL_K3S_SKIP_START=true
+        INSTALL_K3S_SKIP_ENABLE=false
+        INSTALL_K3S_BIN_DIR=/usr/local/bin
+        INSTALL_K3S_SYMLINK=skip
+        {{ k3s_install_script }} agent
+  args:
+    creates: /etc/systemd/system/k3s-agent.service
+  when: not k3s_agent_unit.stat.exists
+
+- name: Ensure k3s-agent is started and enabled
+  ansible.builtin.systemd:
+    name: k3s-agent
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Flush handlers so a config change restarts before the readiness wait
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for node to report Ready (delegated to head)
+  ansible.builtin.command: >-
+    kubectl wait --for=condition=Ready node/{{ inventory_hostname }} --timeout=180s
+  delegate_to: dalmasca
+  changed_when: false
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml

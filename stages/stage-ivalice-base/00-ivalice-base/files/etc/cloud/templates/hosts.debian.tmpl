@@ -1,0 +1,15 @@
+## /etc/cloud/templates/hosts.debian.tmpl — managed by cloud-init
+## DO NOT EDIT. See /etc/cloud/cloud.cfg.d/99-ivalice.cfg.
+127.0.0.1 localhost
+127.0.1.1 {{fqdn}} {{hostname}}
+::1       localhost ip6-localhost ip6-loopback
+ff02::1   ip6-allnodes
+ff02::2   ip6-allrouters
+
+# Ivalice cluster (subnet 10.42.0.0/24) — nations of Ivalice
+10.42.0.1   dalmasca  dalmasca.local
+10.42.0.11  archadia  archadia.local
+10.42.0.12  rozarria  rozarria.local
+10.42.0.13  bhujerba  bhujerba.local
+10.42.0.14  nabradia  nabradia.local
+10.42.0.15  kerwon    kerwon.local

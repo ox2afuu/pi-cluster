@@ -1,0 +1,7 @@
+---
+- name: Common across cluster
+  hosts: cluster
+  gather_facts: true
+  any_errors_fatal: false
+  roles:
+    - role: common

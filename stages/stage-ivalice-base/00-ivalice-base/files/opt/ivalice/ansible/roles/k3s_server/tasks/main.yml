@@ -1,0 +1,46 @@
+---
+# k3s server role — runs on the head only.
+
+- name: Stat k3s binary
+  ansible.builtin.stat:
+    path: "{{ k3s_binary }}"
+  register: k3s_bin_stat
+
+- name: Assert k3s binary is present
+  ansible.builtin.assert:
+    that:
+      - k3s_bin_stat.stat.exists
+      - k3s_bin_stat.stat.executable
+    fail_msg: "{{ k3s_binary }} missing or not executable on head"
+
+- name: Ensure k3s.service is started and enabled
+  ansible.builtin.systemd:
+    name: k3s.service
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Wait for apiserver port 6443
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 6443
+    timeout: 180
+
+- name: Poll /healthz via k3s kubectl until ready
+  ansible.builtin.command: "{{ k3s_binary }} kubectl get --raw /healthz"
+  register: healthz
+  changed_when: false
+  retries: 30
+  delay: 5
+  until: healthz.rc == 0 and healthz.stdout == "ok"
+  environment:
+    KUBECONFIG: "{{ kubeconfig }}"
+
+- name: Export node-token to /var/lib/ivalice/node-token
+  ansible.builtin.copy:
+    src: "{{ k3s_node_token }}"
+    dest: "{{ exported_node_token }}"
+    remote_src: true
+    owner: root
+    group: ivalice
+    mode: "0640"

@@ -1,0 +1,10 @@
+# /etc/rancher/k3s/config.yaml — Ivalice head (server), hostname 'dalmasca'
+write-kubeconfig-mode: "0644"
+disable:
+  - traefik
+cluster-init: true
+node-name: dalmasca
+tls-san:
+  - dalmasca
+  - dalmasca.local
+  - 10.42.0.1
