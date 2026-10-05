@@ -3,7 +3,6 @@
 # and their parents). Used by tools/docs/check_doc_paths.py.
 
 # --- Planned components (CLAUDE.md / README.md roadmap, not built yet) ---
-stages/stage-ivalice-base/10-sphinx-asr
 scripts/stage-corpus.sh
 scripts/smoke-sphinx.sh
 assets/sphinx-wheels

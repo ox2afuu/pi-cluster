@@ -1,0 +1,40 @@
+# run-checks: 2026-10-05T18:31:55Z on centos6-baseline.localdomain, sphinx-asr 77457866be77f33b5c187bfaf5bd0cd24926ce9f
+
+## pytest (sphinx-asr suite, Python 3.12.15)
+.................................xxx...x................................ [ 93%]
+.....                                                                    [100%]
+=========================== short test summary info ============================
+XFAIL tests/scripts/test_known_defects.py::test_override_for_key_absent_from_template_is_not_dropped - Known defect (review 2026-10-04 #6): _apply_overrides (scripts/lib/config.py:279-303) silently drops overrides for keys absent from the sphinx_train.cfg template.
+XFAIL tests/scripts/test_known_defects.py::test_backslash_group_reference_in_value_is_written_literally - Known defect (review 2026-10-04 #11): _apply_overrides passes the value into re.sub's replacement template unescaped, so a backslash group reference such as \1 is expanded and corrupts the line.
+XFAIL tests/scripts/test_known_defects.py::test_unknown_backslash_escape_in_value_is_written_literally - Known defect (review 2026-10-04 #11): an unknown backslash escape such as \q in an override value makes re.sub raise re.error.
+XFAIL tests/scripts/test_known_defects.py::test_nonzero_exit_without_declared_artifacts_exits - Known defect (review 2026-10-04 #1): scripts/train.py:234-251 treats a nonzero exit as success when the step declares no artifacts, because check_artifacts() returns [] vacuously.
+73 passed, 4 xfailed in 2.98s
+pytest exit=0 wall=5s (TCG, not a timing result)
+
+## tool sanity (bin/x86_64, built with gcc (GCC) 4.4.7 20120313 (Red Hat 4.4.7-23))
+sphinx_fe: OK (prints usage)
+    ERROR: "cmd_ln.c", line 682: No arguments given, available options are:
+    Arguments list definition:
+    [NAME]			[DEFLT]		[DESCR]
+    -alpha			0.97		Preemphasis parameter
+    -argfile				Argument file (e.g. feat.params from an acoustic model) to read parameters from.  This will override anything set in other command line arguments.
+    -blocksize		2048		Number of samples to read at a time.
+    -build_outdirs		yes		Create missing subdirectories in output directory
+    -c					Control file for batch processing
+bw: OK (prints usage)
+    INFO: main.c(201): Compiled on Oct  5 2026 at 18:30:54
+    ERROR: "cmd_ln.c", line 682: No arguments given, available options are:
+    Arguments list definition:
+    [NAME]		[DEFLT]		[DESCR]
+    -2passvar	no		Reestimate variances based on prior means
+    -abeam		1e-100		Evaluate alpha values subject to this beam
+    -accumdir			A path where accumulated counts are to be written.
+    -agc		none		Automatic gain control for c0 ('max', 'emax', 'noise', or 'none')
+pocketsphinx_batch: present
+text2wfreq: present
+idngram2lm: present
+
+## binaries whose .comment names a compiler other than GCC 4.4.7
+none (all ELF objects report GCC 4.4.7)
+
+RESULT: PASS

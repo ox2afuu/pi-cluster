@@ -32,8 +32,9 @@ if [[ ! -f "${_cluster_pub}" ]]; then
 fi
 
 # Literal newline between the two keys — pi-gen splits authorized_keys on \n.
-export PUBKEY_SSH_FIRST_USER="$(cat "${_pubkey_path}")
+PUBKEY_SSH_FIRST_USER="$(cat "${_pubkey_path}")
 $(cat "${_cluster_pub}")"
+export PUBKEY_SSH_FIRST_USER
 
 # --- tell pi-gen to skip the upstream desktop stages ---------------------
 for s in stage3 stage4 stage5; do

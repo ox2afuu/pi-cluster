@@ -1,0 +1,46 @@
+# CentOS 6 is EOL; mirror.centos.org and the mirrorlist are gone.
+# Installed by baselines/rhel6 (make-seed.sh, provision.sh).
+# First baseurl: vault-proxy.py on the host loopback (QEMU user networking
+# maps 10.0.2.2 to the host's 127.0.0.1); used while provision.sh runs.
+# Second baseurl: vault.centos.org directly over HTTPS (slow and flaky
+# under TCG, but works for small installs). gpgcheck stays on for both.
+[vault-os]
+name=CentOS 6.10 os (vault)
+baseurl=http://10.0.2.2:8610/6.10/os/$basearch/
+        https://vault.centos.org/6.10/os/$basearch/
+failovermethod=priority
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-6
+enabled=1
+
+[vault-updates]
+name=CentOS 6.10 updates (vault)
+baseurl=http://10.0.2.2:8610/6.10/updates/$basearch/
+        https://vault.centos.org/6.10/updates/$basearch/
+failovermethod=priority
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-6
+enabled=1
+
+[vault-extras]
+name=CentOS 6.10 extras (vault)
+baseurl=http://10.0.2.2:8610/6.10/extras/$basearch/
+        https://vault.centos.org/6.10/extras/$basearch/
+failovermethod=priority
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-6
+enabled=1
+
+# devtoolset-8 (gcc 8.3.1). Used ONLY to build the Python 3.12
+# orchestration interpreter, never the sphinx-asr compute path.
+# The key file comes from centos-release-scl-rh (vault-extras), so this
+# repo is skipped until that package is installed.
+[vault-sclo-rh]
+name=CentOS 6.10 SCLo rh (vault)
+baseurl=http://10.0.2.2:8610/6.10/sclo/$basearch/rh/
+        https://vault.centos.org/6.10/sclo/$basearch/rh/
+failovermethod=priority
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-SCLo
+enabled=1
+skip_if_unavailable=1

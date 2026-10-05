@@ -7,6 +7,11 @@
     - [Build pipeline](architecture/build-pipeline.md)
     - [Provisioning](architecture/provisioning.md)
     - [Workload](architecture/workload.md)
+- [Infrastructure](infra/index.md)
+    - [GitLab CI](infra/gitlab-ci.md)
+    - [Lab image](infra/lab-image.md)
+- [Baselines](baselines/index.md)
+    - [CentOS 6.10 legacy VM](baselines/rhel6-centos6.md)
 - UML diagrams
     - [Phase 0 design](uml/)
     - [Code-verified set](uml-verified/)
@@ -18,6 +23,7 @@
     - Decision records
         - [Overview](standards/adr/index.md)
         - [0001 MkDocs Material, mkdocstrings, PlantUML](standards/adr/0001-mkdocs-material-mkdocstrings-plantuml.md)
+        - [0002 Dedicated Lima runner for image builds](standards/adr/0002-dedicated-lima-runner-for-image-builds.md)
         - [Template](standards/adr/template.md)
 - [Reviews](reviews/index.md)
     - [2026-10-04 baseline](reviews/2026-10-04-baseline.md)

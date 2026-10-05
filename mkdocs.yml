@@ -80,6 +80,11 @@ plugins:
       enable_creation_date: true
       enable_git_follow: false
       type: iso_date
+      # Missing git history is a warning (fails --strict) by default.
+      # GitLab jobs on Debian 13 set REVDATE_STRICT=false: its git 2.47
+      # returns no commits for the plugin's `log --diff-filter=r`, so every
+      # page would warn. Links, anchors and nav stay strict everywhere.
+      strict: !ENV [REVDATE_STRICT, true]
   - glightbox:
       zoomable: true
       draggable: true
