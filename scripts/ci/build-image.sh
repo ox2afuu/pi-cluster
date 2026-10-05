@@ -62,6 +62,9 @@
 #   3  a submodule is missing, off its pinned commit, or dirty
 #   4  pi-gen finished but produced no single .img
 set -euo pipefail
+# losetup, chroot and friends live in sbin, which is not on an unprivileged
+# runner user's PATH on Debian.
+export PATH="${PATH}:/usr/local/sbin:/usr/sbin:/sbin"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT_DIR="${OUT_DIR:-${REPO_ROOT}/out}"

@@ -36,6 +36,9 @@
 #   3  setup error (missing tool, no sudo, image could not be attached
 #      or mounted, pytest could not be fetched)
 set -euo pipefail
+# losetup, chroot and friends live in sbin, which is not on an unprivileged
+# runner user's PATH on Debian.
+export PATH="${PATH}:/usr/local/sbin:/usr/sbin:/sbin"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SPHINX_ROOT=/srv/ivalice/sphinx-asr
