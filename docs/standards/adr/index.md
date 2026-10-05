@@ -7,6 +7,7 @@ changes course gets a new record that supersedes the old one.
 | ADR | Title | Status | Date |
 | --- | --- | --- | --- |
 | [0001](0001-mkdocs-material-mkdocstrings-plantuml.md) | MkDocs Material, mkdocstrings and pre-rendered PlantUML for the engineering wiki | Accepted | 2026-10-04 |
+| [0002](0002-dedicated-lima-runner-for-image-builds.md) | A dedicated Lima VM runner for image builds | Proposed | 2026-10-05 |
 
 ## Writing one
 
