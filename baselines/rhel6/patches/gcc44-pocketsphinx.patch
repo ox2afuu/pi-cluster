@@ -1,0 +1,76 @@
+gcc 4.4.7 (RHEL/CentOS 6 system compiler) compatibility for the vendored
+pocketsphinx 5.0.4 in sphinx-asr 7745786. Applied by
+baselines/rhel6/guest/provision-guest.sh with `patch -p1` in the guest copy
+only; the sphinx-asr submodule is never modified.
+
+Declaration-only changes; no generated code changes:
+
+1. Repeated typedefs. C11 (and gcc >= 4.6) accept a typedef repeated with
+   the same type; gcc 4.4 rejects it in every mode ("error: redefinition of
+   typedef"). ps_config_t and ps_decoder_t are typedef'd in
+   pocketsphinx/model.h and pocketsphinx/search.h, which pocketsphinx.h
+   includes, and again in pocketsphinx.h. fsg_model_t is typedef'd in
+   pocketsphinx/model.h and again by src/lm/fsg_model.h. Drop the repeats.
+
+2. Storage-class order. With PS_USE_THREAD_LOCAL_RNG, PS_THREAD_LOCAL is
+   gcc's __thread on gcc 4.4 (no C11 _Thread_local). gcc requires __thread
+   to follow `static` ("error: '__thread' before 'static'"), while C11
+   _Thread_local may come first. Write `static PS_THREAD_LOCAL`, valid for
+   both.
+
+diff -u a/vendor/pocketsphinx/include/pocketsphinx.h b/vendor/pocketsphinx/include/pocketsphinx.h
+--- a/vendor/pocketsphinx/include/pocketsphinx.h
++++ b/vendor/pocketsphinx/include/pocketsphinx.h
+@@ -126,14 +126,14 @@ typedef struct ps_arg_s {
+ /**
+  * @struct ps_config_t
+  * @brief configuration object.
++ * (typedef lives in pocketsphinx/model.h; C99 forbids repeating it)
+  */
+-typedef struct cmd_ln_s ps_config_t;
+ 
+ /**
+  * @struct ps_decoder_t
+  * @brief Speech recognizer object.
++ * (typedef lives in pocketsphinx/search.h; C99 forbids repeating it)
+  */
+-typedef struct ps_decoder_s ps_decoder_t;
+ 
+ /**
+  * @struct ps_nbest_t
+diff -u a/vendor/pocketsphinx/src/lm/fsg_model.h b/vendor/pocketsphinx/src/lm/fsg_model.h
+--- a/vendor/pocketsphinx/src/lm/fsg_model.h
++++ b/vendor/pocketsphinx/src/lm/fsg_model.h
+@@ -105,7 +105,8 @@ typedef struct trans_list_s {
+  * There can also be null or epsilon transitions, with no associated emitted
+  * word.
+  */
+-typedef struct fsg_model_s {
++/* fsg_model_t is typedef'd in pocketsphinx/model.h (C99: no repeat). */
++struct fsg_model_s {
+     int refcount;       /**< Reference count. */
+     char *name;		/**< A unique string identifier for this FSG */
+     int32 n_word;       /**< Number of unique words in this FSG */
+@@ -121,7 +122,7 @@ typedef struct fsg_model_s {
+ 			   logprobs */
+     trans_list_t *trans; /**< Transitions out of each state, if any. */
+     listelem_alloc_t *link_alloc; /**< Allocator for FSG links. */
+-} fsg_model_t;
++};
+ 
+ /* Access macros */
+ #define fsg_model_name(f)		((f)->name)
+diff -u a/vendor/pocketsphinx/src/util/genrand.c b/vendor/pocketsphinx/src/util/genrand.c
+--- a/vendor/pocketsphinx/src/util/genrand.c
++++ b/vendor/pocketsphinx/src/util/genrand.c
+@@ -98,8 +98,8 @@ genrand_seed(unsigned long s)
+ }
+ 
+ 
+-PS_THREAD_LOCAL static unsigned long mt[N];     /* the array for the state vector  */
+-PS_THREAD_LOCAL static int mti = N + 1;         /* mti==N+1 means mt[N] is not initialized */
++static PS_THREAD_LOCAL unsigned long mt[N];     /* the array for the state vector  */
++static PS_THREAD_LOCAL int mti = N + 1;         /* mti==N+1 means mt[N] is not initialized */
+ 
+ /* initializes mt[N] with a seed */
+ void

@@ -1,0 +1,6 @@
+# Local, regenerable state for the CentOS 6 baseline VM. Never commit.
+# .cache/  pinned base image download (about 800 MB)
+# .state/  overlay disk, seed ISO, generated ssh key, known_hosts,
+#          pidfile, serial console log
+.cache/
+.state/

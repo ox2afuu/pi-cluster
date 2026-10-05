@@ -10,6 +10,8 @@
 - [Infrastructure](infra/index.md)
     - [GitLab CI](infra/gitlab-ci.md)
     - [Lab image](infra/lab-image.md)
+- [Baselines](baselines/index.md)
+    - [CentOS 6.10 legacy VM](baselines/rhel6-centos6.md)
 - UML diagrams
     - [Phase 0 design](uml/)
     - [Code-verified set](uml-verified/)
