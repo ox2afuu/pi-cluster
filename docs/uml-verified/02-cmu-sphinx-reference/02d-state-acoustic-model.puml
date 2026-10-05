@@ -1,0 +1,48 @@
+@startuml 02d-state-acoustic-model
+!include ../_style.iuml
+title CMU Sphinx reference: acoustic model lifecycle through the SphinxTrain steps (with skip guards)
+
+[*] --> Verified : 00.verify/verify_all.pl
+state "Inputs verified" as Verified
+
+Verified --> LDA : 01.lda_train/slave_lda.pl\n[CFG_LDA_MLLT = yes]
+Verified --> NoXform : [CFG_LDA_MLLT = no]\n01 and 02 log "Skipped"
+state "LDA matrix\nmodel_parameters/<db>.lda" as LDA
+LDA --> MLLT : 02.mllt_train/slave_mllt.pl
+state "MLLT transform\n<db>.mllt\n(upstream init: I + 0.1 x random,\nsee 03i for the sphinx-asr patch)" as MLLT
+state "No feature transform" as NoXform
+MLLT --> VQ
+NoXform --> VQ
+state "05.vector_quantize\nonly for semi-continuous\n(skipped when CFG_HMM_TYPE=.cont.)" as VQ
+
+VQ --> FA : 10.falign_ci_hmm\n[CFG_FORCEDALIGN or CFG_VTLN = yes]
+VQ --> CI : otherwise (10, 11, 12 skipped)
+state "Force-align bootstrap\n10 CI model, then 11 sphinx3_align\nrealigns transcripts\n(11 only if FORCEDALIGN=yes and VTLN=no)" as FA
+FA --> VTLN : 12.vtln_align [CFG_VTLN = yes]\n(11 is skipped in this case)
+FA --> CI
+state "Per-speaker VTLN warp\n(cfg 0.80 .. 1.40 step 0.05)" as VTLN
+VTLN --> CI
+
+state "20.ci_hmm\nflat start -> CI HMM (EM)\nGaussian splitting only if CFG_CI_MGAU=yes" as CI
+CI --> Untied : 30.cd_hmm_untied\n[CFG_CD_TRAIN = yes]
+state "30 Untied triphone HMM\none Gaussian per state" as Untied
+Untied --> Trees : 40.buildtrees
+state "40 Decision trees per\nphone x state\n(linguistic questions)" as Trees
+Trees --> Tied : 45.prunetree\nprune to CFG_N_TIED_STATES
+state "45 Tied states (senones)\n<db>.<N>.mdef" as Tied
+Tied --> CD : 50.cd_hmm_tied
+state "50 Tied CD HMM\nEM, split 1 -> 2 -> 4 .. ->\nCFG_FINAL_NUM_DENSITIES\n<db>.cd_cont_<N>/" as CD
+CD --> DI : 90.deleted_interpolation\n[skipped only for .cont.,\nruns for .semi. and .ptm.]
+CD --> Final : continuous models
+state "Smoothed semi / PTM model" as DI
+DI --> Final
+state "Final acoustic model\nconsumed by pocketsphinx" as Final
+Final --> [*]
+
+note right of CD
+  Optional upstream steps not shown:
+  000.comp_feat (feature extraction),
+  0000.g2p_train, 60-65 lattice/MMIE
+  discriminative training, 80.mllr_adapt.
+end note
+@enduml

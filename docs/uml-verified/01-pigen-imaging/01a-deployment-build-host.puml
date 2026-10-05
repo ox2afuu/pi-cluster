@@ -1,0 +1,65 @@
+@startuml 01a-deployment-build-host
+!include ../_style.iuml
+title Pi-Gen imaging: where each piece runs during an image build
+
+node "Operator workstation (macOS, Apple Silicon)" as Mac {
+  folder "ivaliceCluster/ (git repo)" as Repo {
+    artifact "scripts/build.sh" as BuildSh
+    artifact "scripts/_pigen-podman.sh" as Helper
+    artifact "configs/config.base" as Cfg
+    folder "stages/stage-ivalice-base/" as Stages
+    folder "assets/ (gitignored)\nk3s, k3s-install.sh,\nk3s-airgap-images-arm64.tar.zst,\ncluster-token, munge.key,\nivalice-cluster[.pub], ohmyzsh.tar.gz" as Assets
+    folder "pi-gen/ (git submodule,\nRPi-Distro/pi-gen)" as PiGen
+    folder "pi-gen/deploy/\n(ivalice image lands here)" as Deploy
+  }
+  artifact "~/.ssh/headnode-key.pub\n(or $IVALICE_PUBKEY_PATH)" as OpKey
+
+  node "podman machine VM (Linux, rootful)" as VM {
+    node "container 'pigen_work'\nimage 'pi-gen' (FROM debian:trixie)\n~--privileged" as Ctr {
+      folder "/pi-gen  (COPY of pi-gen/ at podman build time)" as CPiGen
+      folder "/config  (ro bind: config.base)" as CCfg
+      folder "/stages  (ro bind: stages/)" as CStages
+      folder "/assets  (ro bind: assets/)" as CAssets
+      folder "/pi-gen/work/ivalice/\nstage0..stage-ivalice-base rootfs,\nexport-image" as CWork
+      folder "/pi-gen/deploy/" as CDeploy
+    }
+    component "kernel: loop devices,\nbinfmt_misc + qemu-user\n(arm64 emulation)" as Kern
+  }
+}
+
+node "SD card (one per CM4 Lite)" as SD
+
+BuildSh --> Helper : source
+BuildSh ..> OpKey : read pubkey
+BuildSh ..> Assets : generate / download
+Helper --> PiGen : patch scripts/common,\nrm stage2/EXPORT_IMAGE,\npodman build
+PiGen ..> CPiGen : baked into image
+Cfg ..> CCfg
+Stages ..> CStages
+Assets ..> CAssets
+CPiGen --> CWork : ./build.sh -c /config
+CWork --> Kern : chroot, losetup,\nqemu-aarch64
+CWork --> CDeploy : export-image
+CDeploy ..> Deploy : podman cp .../deploy/.
+Deploy ..> SD : flashed by operator\n(no flash script in repo)
+
+note right of PiGen #FFE4E1
+  FINDING: the submodule pointer is pi-gen
+  branch "master" @ d2f70c5, whose build.sh hard-codes
+  ARCH=armhf (32-bit). config.base assumes the
+  "arm64" branch, and the k3s binary + airgap
+  images in assets/ are arm64. A fresh
+  "git clone ~--recurse-submodules" therefore
+  builds a 32-bit rootfs with 64-bit k3s.
+  The sibling checkout cmCluster/pi-gen is on
+  branch "arm64" @ d012909 (ARCH=arm64).
+end note
+
+note bottom of Ctr
+  Inside the container: dpkg-reconfigure qemu-user-binfmt,
+  mount binfmt_misc, detach stale "(lost)/(deleted)" loops,
+  then cd /pi-gen && ./build.sh -c /config.
+  STAGE_LIST = stage0 stage1 stage2 ../stages/stage-ivalice-base
+  (../stages resolves to the /stages bind mount).
+end note
+@enduml

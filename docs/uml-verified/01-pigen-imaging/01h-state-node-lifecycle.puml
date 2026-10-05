@@ -1,0 +1,47 @@
+@startuml 01h-state-node-lifecycle
+!include ../_style.iuml
+title Pi-Gen imaging: lifecycle of one cluster node, from image to verified member
+
+[*] --> Built : scripts/build.sh
+state "Image built\n(generic, role-less)" as Built
+Built --> Flashed : write .img to SD
+state "Flashed\n(no ivalice-node.conf)" as Flashed
+Flashed --> Personalized : personalize-node.sh
+state "Personalized\nbootfs has ivalice-node.conf" as Personalized
+Flashed --> Halted : boot without conf
+state "Firstboot skipped\n(ConditionPathExists fails,\neth0 unconfigured: only the .template\nexists and NetworkManager is masked)" as Halted
+
+Personalized --> FirstBooted : power on,\nivalice-firstboot.service
+state "First-booted" as FirstBooted {
+  state "hostname + static IP set" as fb1
+  state "role units enabled\n(head: slurmctld, postboot-ansible\nworker: slurmd, cluster key deleted)" as fb2
+  state "marker /var/lib/ivalice/firstboot.done\nrole.head | role.worker [, k3s.enabled]" as fb3
+  fb1 --> fb2
+  fb2 --> fb3
+}
+FirstBooted --> Running : services start\n(see 01i note on same-boot enablement)
+state "Running role services\nmunge + slurmctld (head) / slurmd (worker)\noptional k3s / k3s-agent" as Running
+Running --> Converging : head only:\nivalice-postboot-ansible (01j)
+state "Converging\nsite.yml 10 -> 20 -> 30 -> 40/50" as Converging
+Converging --> Verified : 90-verify: sinfo 5 idle,\nsrun -N5 hostname
+state "Verified + converged\nansible-postboot.done written\nby the verify role" as Verified
+Converging --> Retrying : quorum timeout or\nplaybook failure
+state "Retrying\nRestart=on-failure every 120 s" as Retrying
+Retrying --> Converging
+Retrying --> Failed : start limit hit (if it ever applies)
+state "Failed\nmanual: journalctl, /var/log/ivalice/ansible.log" as Failed
+Verified --> [*]
+
+note right of Verified
+  Re-personalizing a booted node does nothing:
+  firstboot.done blocks a second run. Reflash
+  or delete the marker to change identity.
+end note
+note bottom of Retrying #FFE4E1
+  FINDING (likely): the unit puts StartLimitIntervalSec= in [Service].
+  systemd only accepts that key in [Unit] (the [Service] spelling is
+  StartLimitInterval=), so it is ignored, the 10 s default applies, and
+  with RestartSec=120 the burst of 5 is never reached: the service
+  retries every 2 min indefinitely. Check: systemd-analyze verify.
+end note
+@enduml

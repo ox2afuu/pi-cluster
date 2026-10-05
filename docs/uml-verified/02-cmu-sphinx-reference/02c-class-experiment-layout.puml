@@ -1,0 +1,60 @@
+@startuml 02c-class-experiment-layout
+!include ../_style.iuml
+left to right direction
+title CMU Sphinx reference: the SphinxTrain experiment directory contract ($CFG_BASE_DIR)
+
+class "etc/" as ETC <<folder>> {
+  {field} sphinx_train.cfg  : all $CFG_* / $DEC_CFG_*
+  {field} feat.params  : front-end parameters
+  {field} <db>.dic  : word -> phones
+  {field} <db>.filler  : ~<s>, ~</s>, <sil>, noise words -> SIL / +noise+
+  {field} <db>.phone  : one phone per line incl. SIL
+  {field} <db>_train.fileids / .transcription
+  {field} <db>_test.fileids / .transcription  (decode list)
+}
+class "feat/" as FEAT <<folder>> {
+  {field} <fileid>.mfc  ($CFG_FEATFILES_DIR, may point elsewhere)
+}
+class "model_architecture/" as ARCH <<folder>> {
+  {field} <db>.ci.mdef, <db>.untied.mdef, <db>.<N>.mdef
+  {field} <db>.tree_questions, trees/
+}
+class "model_parameters/" as PARAMS <<folder>> {
+  {field} <db>.lda, <db>.mllt
+  {field} <db>.ci_cont/, <db>.cd_cont_untied/
+  {field} <db>.cd_cont_<N>_<k>/  (k = 1,2,4.. Gaussians)
+  {field} <db>.cd_cont_<N>/  final model
+}
+class "bwaccumdir/" as ACC <<folder>> {
+  {field} per-partition Baum-Welch counts
+}
+class "logdir/" as LOG <<folder>> {
+  {field} NN.step/<db>.<ngau>.<iter>-<part>.bw.log
+  {field} NN.step/<db>.<ngau>.<iter>.norm.log
+  {field} decode/
+}
+class "qmanager/" as QM <<folder>> {
+  {field} <job>.out / <job>.err (non-inline queues)
+}
+class "result/" as RES <<folder>> {
+  {field} <db>-<part>-<N>.match, <db>.match, <db>.align
+}
+
+class "verify_all.pl (00)" as V
+class "training steps (01..90)" as T
+class "decode/slave.pl" as D
+
+V ..> ETC : reads all lists
+V ..> FEAT : checks every fileid has .mfc
+T ..> ETC
+T ..> FEAT
+T --> ARCH : writes mdef, trees
+T --> PARAMS : writes models
+T --> ACC : bw counts
+T --> LOG
+T --> QM
+D ..> PARAMS : final AM
+D ..> ETC : test lists, LM path, dict
+D --> RES
+D --> LOG
+@enduml

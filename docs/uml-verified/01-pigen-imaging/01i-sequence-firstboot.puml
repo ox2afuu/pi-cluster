@@ -1,0 +1,58 @@
+@startuml 01i-sequence-firstboot
+!include ../_style.iuml
+title Pi-Gen imaging: first boot on a personalized node (systemd ordering)
+
+participant "systemd\n(PID 1)" as SD
+participant "ivalice-firstboot.service\n(sysinit, DefaultDependencies=no)" as FB
+participant "ivalice-firstboot.sh" as FS
+database "/boot/firmware/\nivalice-node.conf" as Conf
+participant "systemd-networkd" as NET
+participant "cloud-init\n(NoCloud, None)" as CI
+participant "avahi-daemon" as AV
+participant "munge" as MU
+participant "slurmctld (head)\nslurmd (worker)" as SL
+
+SD -> FB : start (After local-fs, Before network-pre\nand cloud-init-local)
+note right of FB
+  Conditions: conf exists AND
+  /var/lib/ivalice/firstboot.done absent
+end note
+FB -> FS : ExecStart
+FS -> Conf : source
+FS -> FS : validate NODE_ROLE in {head, worker},\nHOSTNAME, IP set
+FS -> FS : /etc/hostname + hostnamectl
+FS -> FS : cp 10-eth0.network.template -> 10-eth0.network,\nsed ~__STATIC_ADDRESS~__ -> NODE_IP
+FS -> SD : systemctl enable munge
+alt NODE_ROLE = head
+  FS -> SD : enable slurmctld, disable slurmd
+  FS -> FS : link k3s config.head.yaml
+  FS -> SD : enable ivalice-postboot-ansible
+  FS -> FS : touch role.head
+else worker
+  FS -> SD : enable slurmd, disable slurmctld
+  FS -> FS : install config.worker.yaml,\nnode-name = hostname
+  FS -> FS : rm /root/.ssh/ivalice-cluster
+  FS -> FS : touch role.worker
+end
+opt NODE_K3S = yes
+  FS -> SD : enable k3s (head) or k3s-agent (worker)
+  FS -> FS : touch k3s.enabled
+end
+FS -> FS : write firstboot.done (ISO timestamp)
+FS --> FB : exit 0
+SD -> NET : start (after network-pre)
+NET -> NET : eth0 = NODE_IP/24, no gateway, no DNS,\nIPv6 RA off
+SD -> CI : cloud-init-local / main
+CI -> CI : preserve_hostname, network disabled,\nmanage_etc_hosts: template (all 6 nodes)
+SD -> AV : publish <hostname>.local on eth0
+SD -> MU : start (enabled at bake time)
+SD -> SL : start ONLY if already in this boot transaction
+
+note over SD, SL #FFE4E1
+  FINDING (verify on hardware): systemd computes the boot transaction before
+  firstboot runs. Units that firstboot newly enables (slurmctld/slurmd, k3s,
+  ivalice-postboot-ansible, all WantedBy=multi-user.target) normally do not
+  start until the NEXT boot, unless something calls systemctl start. Expect a
+  second power cycle before Slurm and Ansible convergence run.
+end note
+@enduml

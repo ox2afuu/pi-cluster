@@ -1,0 +1,49 @@
+@startuml 01d-activity-pigen-stage-engine
+!include ../_style.iuml
+title Pi-Gen imaging: how pi-gen executes STAGE_LIST (upstream build.sh semantics)
+
+start
+:source /config, export ARCH (from pi-gen branch), RELEASE, IMG_NAME, ...;
+:WORK_DIR = work/ivalice (work/<IMG_NAME>)
+image file name = <IMG_DATE>-ivalice.img;
+while (next STAGE_DIR in STAGE_LIST?) is (yes)
+  :STAGE_DIR = realpath(entry)
+  ROOTFS_DIR = WORK_DIR/<stage>/rootfs;
+  if (SKIP_IMAGES absent AND EXPORT_IMAGE present?) then (yes)
+    :append STAGE_DIR to EXPORT_DIRS;
+  endif
+  if (SKIP present?) then (no)
+    if (prerun.sh executable?) then (yes)
+      :./prerun.sh
+      (stage0: debootstrap, others: copy_previous rootfs);
+    endif
+    while (next sub-stage dir NN-name/ without SKIP?) is (yes)
+      partition "run_sub_stage: for i in 00..99" {
+        :i-debconf -> debconf-set-selections (chroot);
+        :i-packages-nr -> apt-get install ~--no-install-recommends (chroot);
+        :i-packages -> apt-get install (chroot);
+        :i-patches/ -> quilt push -a against rootfs;
+        :i-run.sh -> run on build host side if executable
+        (uses ${ROOTFS_DIR}, may call on_chroot);
+        :i-run-chroot.sh -> piped into on_chroot;
+      }
+    endwhile
+  endif
+  :unmount, then PREV_ROOTFS_DIR = ROOTFS_DIR;
+endwhile
+while (next EXPORT_DIR?) is (yes)
+  :source EXPORT_DIR/EXPORT_IMAGE (IMG_SUFFIX="");
+  :run_stage export-image:
+  00-allow-rerun, 01-user-rename, 02-set-sources,
+  03-network, 04-set-partuuid, 05-finalise
+  -> deploy/<date>-ivalice.img;
+endwhile
+stop
+
+note right
+  For ivaliceCluster the only EXPORT_DIR is
+  stages/stage-ivalice-base, because build.sh
+  removes stage2/EXPORT_IMAGE and SKIP_IMAGES
+  covers stage3-5.
+end note
+@enduml

@@ -1,0 +1,60 @@
+@startuml 03i-component-build-vendor-patches
+!include ../_style.iuml
+title sphinx-asr: native build (Makefile) and the patches Mason made to vendored upstream code
+
+component "make (target all -> install)" as MK
+component "pocketsphinx target\ncmake -DCMAKE_BUILD_TYPE=Release\n-DCMAKE_C_FLAGS=-w, build -j nproc" as PST
+component "sphinxtrain target (after pocketsphinx)\ncmake Release, -w" as STT
+component "cmu_toolkit target\ncd src, make install CFLAGS=-w -O2" as CTT
+folder "bin/<uname -m>/" as BIN
+component "make link\nln -sf sphinx.sh /usr/local/bin/sphinx" as LINK
+
+MK --> PST
+MK --> STT
+MK --> CTT
+PST --> BIN : pocketsphinx, pocketsphinx_batch,\npocketsphinx_lm_convert
+STT --> BIN : every executable in build/\n(bw, norm, sphinx_fe, ...)
+CTT --> BIN : text2wfreq, wfreq2vocab,\ntext2idngram, idngram2lm, evallm ...
+
+package "Patches inside vendor/ (marked 'sphinx-asr PATCH' where noted)" {
+  component P1 [
+  <b>sphinxtrain/python/cmusphinx/mllt.py</b>
+  9bc1c52, 266c6b5, d01dfda
+  read SPHINXASR_MLLT_SEED: seeded random
+  init A = I + 0.1 x U(0,1), else identity
+  ]
+  component P2 [
+  <b>sphinxtrain/scripts/decode/psdecode.pl</b>
+  0418ceb: pass -ldadim CFG_LDA_DIMENSION
+  to pocketsphinx_batch when CFG_LDA_MLLT=yes
+  ]
+  component P3 [
+  <b>sphinxtrain/etc/feat.params</b>
+  00ccc34: add -samprate placeholder
+  (needed for 8 kHz Switchboard)
+  ]
+  component P4 [
+  <b>cmu_toolkit/src</b>
+  004a627, dd795ad: modern C fixes
+  (evallm.c, pc_message.c, quit.c, general.h)
+  2b497b4 (Caleb Hazelton): CC = gcc -fpermissive
+  for gcc 15
+  ]
+}
+P1 ..> STT
+P2 ..> STT
+P3 ..> STT
+P4 ..> CTT
+
+note bottom of CTT #FFE4E1
+  FINDING: 24 x86-64 object files (vendor/cmu_toolkit/src/*.o) are
+  committed despite *.o in .gitignore. On an aarch64 CM4, make may
+  treat them as up to date and fail at link time.
+  Run "git rm ~--cached vendor/cmu_toolkit/src/*.o" or make clean first.
+end note
+note right of BIN
+  Host dependencies (README): python3, python3-venv,
+  perl, sox, make, gcc, cmake, and a "python" -> python3
+  alias (python-is-python3) because SphinxTrain calls python.
+end note
+@enduml

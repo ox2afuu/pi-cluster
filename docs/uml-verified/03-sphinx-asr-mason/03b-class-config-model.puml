@@ -1,0 +1,97 @@
+@startuml 03b-class-config-model
+!include ../_style.iuml
+title sphinx-asr: YAML configuration model and the code that consumes it
+
+class "experiment.yml" as EXP <<YAML, experiments/NNN/>> {
+  {field} name : str
+  {field} author : str
+  {field} train.corpora : list of TrainEntry  (required, non-empty)
+  {field} train.dict : path  (optional override, rel. to SPHINX_ROOT)
+  {field} decode.corpus : {name, split}  (required)
+  {field} decode.lm : path  (optional override)
+  {field} pipeline.mllt_init : "eye" | "random" | int seed
+  {field} sphinxtrain : map CFG_* / DEC_CFG_* -> value\n  (applied last, but only for keys present in the template)
+}
+class "TrainEntry" as TE {
+  {field} name : corpus name
+  {field} split : str  and/or  splits : list
+}
+class "corpus.yml" as COR <<YAML, corpus/<name>/>> {
+  {field} name
+  {field} audio_format : flac | sph | wav ...
+  {field} audio_type : sox | nist | mswav | raw
+  {field} sample_rate : 16000 | 8000
+  {field} num_filt, lo_filt, hi_filt
+  {field} cmn : live | batch ...  (default live)
+  {field} dict : path rel. to corpus dir
+  {field} lm : path rel. to corpus dir
+  {field} audio_dir : shared audio dir (switchboard)
+  {field} full_transcripts : path (for lm ~--all)
+  {field} fillers : map "[NOISE]" -> "+noise+"
+  {field} splits : map name -> Split
+}
+class "Split" as SP {
+  {field} description, hours
+  {field} audio : dir   (librispeech)
+  {field} transcripts : file   (switchboard)
+}
+class "lib/config.py" as CFG {
+  +load_yaml(path) : dict
+  +validate_experiment(exp, path)
+  +load_corpus(name, root) : dict (+ _dir)
+  +load_experiment(exp_dir, root) : dict
+  +generate_sphinx_train_cfg(exp_dir, exp, root) : str
+  -_validate_split(corpus, split, cfg)
+  -_resolve_lm_path(decode_cfg, root)
+  -_apply_overrides(cfg_text, overrides) : str
+  -_to_perl_value(v) : str
+}
+interface "corpus adapter module" as AD {
+  +get_utterances(corpus_dir, split_name,\n  split_cfg, corpus_cfg) : Iterator[(fileid, text)]
+}
+class "corpus/librispeech.py" as LS {
+  rglob *.trans.txt under split audio dir
+}
+class "corpus/switchboard.py" as SWB {
+  +clean_text(text)
+  "utt start end text" lines, fillers kept,
+  [laughter-w] -> [LAUGHTER] w, tags dropped, UPPER
+}
+class "setup.Dictionary" as DIC <<dataclass>> {
+  entries : list[str]
+  phones : set[str]
+  oov : set[str]
+  +build(lexicon, words) : Dictionary
+}
+class "train.TrainingStep" as TS <<dataclass>> {
+  script, artifacts, log_dir
+  fatal_patterns = ["0 frames", "FATAL"]
+  warning_patterns = ["failed", "Aborting"]
+}
+class "new_experiment.Corpus /\nConfigTemplate" as NE <<dataclass>>
+
+EXP "1" *-- "1..*" TE
+COR "1" *-- "1..*" SP
+TE ..> COR : name resolves to\ncorpus/<name>/corpus.yml
+CFG ..> EXP : load + validate
+CFG ..> COR : load, attach as _corpus
+AD <|.. LS
+AD <|.. SWB
+CFG ..> AD : (used by setup.py / lm.py\nvia get_adapter)
+
+note bottom of EXP
+  load_experiment() expands every TrainEntry into one
+  {name, split, _corpus} row per split, and validates each
+  split name against corpus.yml. There is no JSON anywhere:
+  YAML is the only experiment/config format.
+end note
+note bottom of COR #FFE4E1
+  FINDING: "sphinx feats" builds each corpus's .mfc with that corpus's own
+  rate and filterbank, but setup takes CMN, sample rate, filterbank values,
+  feat.params and the default dict from train.corpora[0] only. Mixing
+  LibriSpeech (25 filters, 16 kHz) with Switchboard (15 filters, 8 kHz), as
+  the README example shows, trains on mixed filterbank features under one
+  config. (The README example's splits "145hr"/"300hr" also do not exist;
+  they are "145hr-train" etc.)
+end note
+@enduml

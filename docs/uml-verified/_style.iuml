@@ -1,0 +1,61 @@
+' Shared look for every diagram in this package.
+' Black-and-white by default; the only colour is #FFE4E1 on notes that flag
+' a FINDING (code that disagrees with docs, a latent bug, or a risk).
+skinparam shadowing false
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 12
+skinparam BackgroundColor white
+skinparam ArrowColor Black
+skinparam ArrowFontSize 11
+skinparam NoteBackgroundColor #FFFFF0
+skinparam NoteBorderColor #555555
+skinparam TitleFontSize 15
+skinparam activity {
+  BackgroundColor #FAFAFA
+  BorderColor Black
+  DiamondBackgroundColor #EEEEEE
+  DiamondBorderColor Black
+}
+skinparam sequence {
+  LifeLineBorderColor Black
+  ParticipantBorderColor Black
+  ParticipantBackgroundColor #F6F6F6
+  ActorBorderColor Black
+  ActorBackgroundColor #F6F6F6
+  GroupBorderColor #666666
+}
+skinparam class {
+  BackgroundColor #FAFAFA
+  BorderColor Black
+}
+skinparam component {
+  BackgroundColor #FAFAFA
+  BorderColor Black
+}
+skinparam node {
+  BackgroundColor #FAFAFA
+  BorderColor Black
+}
+skinparam state {
+  BackgroundColor #FAFAFA
+  BorderColor Black
+}
+skinparam package {
+  BorderColor #444444
+}
+skinparam artifact {
+  BackgroundColor #FFFFFF
+  BorderColor Black
+}
+skinparam folder {
+  BackgroundColor #FFFFFF
+  BorderColor Black
+}
+skinparam database {
+  BackgroundColor #FFFFFF
+  BorderColor Black
+}
+skinparam usecase {
+  BackgroundColor #FFFFFF
+  BorderColor Black
+}

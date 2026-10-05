@@ -1,0 +1,48 @@
+@startuml 03j-deployment-docker-vs-venv
+!include ../_style.iuml
+title sphinx-asr: runtime packaging, removed Docker image (Mar 24-26 2026) vs current native venv
+
+package "HISTORICAL: Dockerfile (85e1ba6 -> 7581fc6 -> 57ed2db, deleted in 00dcf68)" {
+  node "stage 'builder'\nFROM debian:bookworm-slim" as B {
+    component "apt: build-essential, cmake,\nperl, python3" as BA
+    component "cmake build vendor/pocketsphinx\n+ install to /usr/local" as BP
+    component "cmake build vendor/sphinxtrain" as BS
+  }
+  node "final image\nFROM debian:bookworm-slim\n(~200 MB, down from >1 GB)" as F {
+    component "apt: perl, python3, sox" as FA
+    artifact "/usr/local/bin/pocketsphinx{,_batch,_lm_convert}\n/usr/local/share/pocketsphinx/" as FB
+    artifact "/opt/sphinxtrain/{build,scripts,etc}" as FS
+    artifact "/app/scripts/ (WORKDIR /app, CMD bash)" as FAPP
+  }
+  artifact ".dockerignore: corpus/ features/\nexperiments/ *.log" as DI
+  BP ..> FB : COPY ~--from=builder
+  BS ..> FS : COPY ~--from=builder
+}
+
+package "CURRENT: native build + self-bootstrapping venv (since 00dcf68, 2026-03-26)" {
+  node "Any Linux / macOS host\n(x86_64 or aarch64)" as H {
+    component "make -> bin/<arch>/\n(pocketsphinx, sphinxtrain, cmu_toolkit)" as MK
+    component "sphinx.sh: python3 -m venv .venv,\npip install pyyaml numpy scipy (first run)" as VE
+    folder "corpus/, experiments/ on the\nhost filesystem (no volumes)" as FS2
+  }
+}
+
+F -[hidden]down- H
+
+note right of F
+  Why it was dropped (commit history + README note
+  "maybe remove docker"): corpora and experiment trees
+  are hundreds of GB of host data, SphinxTrain scripts
+  expect real paths, and the Python wrapper, CMU SLM
+  toolkit, numpy/scipy for MLLT were never in the image.
+  The image also had no sphinx-asr Python deps and
+  no cmu_toolkit (added a day later).
+end note
+note right of H
+  For the ivalice cluster this is the relevant model:
+  build bin/aarch64 on a CM4 (never cross-compile on
+  macOS), and keep .venv + bin + corpus on the shared
+  /srv/ivalice path once NFS exists. Podman is installed
+  on every node if a container route is revisited.
+end note
+@enduml

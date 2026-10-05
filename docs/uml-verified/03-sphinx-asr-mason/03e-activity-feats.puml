@@ -1,0 +1,53 @@
+@startuml 03e-activity-feats
+!include ../_style.iuml
+title sphinx-asr: "sphinx feats <corpus> <split|all> [-j N]" (feats.py)
+
+start
+if (~--list?) then (yes)
+  :for each corpus/*/corpus.yml print splits
+  [available] / [not downloaded];
+  stop
+endif
+:load_corpus(corpus);
+if (split == all?) then (yes)
+  :split_list = every split in corpus.yml;
+else (no)
+  :split_list = [split];
+endif
+repeat
+  :audio dir = split.audio or corpus.audio_dir;
+  :sphinx_fe = bin/<arch>/sphinx_fe or PATH;
+  :rglob *.<audio_format> under audio dir;
+  :skip files whose .mfc exists and is > 4 bytes (cache);
+  fork
+    :worker 1: sphinx_fe -i audio -o .mfc;
+  fork again
+    :worker ...;
+  fork again
+    :worker j (ThreadPoolExecutor, default os.cpu_count());
+  end fork
+  note right
+    sphinx_fe args: -samprate, -nfilt, -lowerf, -upperf,
+    -transform dct, -lifter 22, plus input type:
+    nist/sph -> -nist yes, raw -> -raw yes,
+    wav/mswav -> -mswav yes, other (flac) -> -sox yes.
+    Output .mfc is written NEXT TO the audio in corpus/,
+    so it is shared by every experiment on that split.
+  end note
+  :print progress every 500 files;
+repeat while (more splits?) is (yes)
+:Done. extracted / cached / failed;
+if (failed > 0?) then (yes)
+  :exit 1;
+endif
+stop
+note left #FFE4E1
+  FINDING: line 224 nests double quotes inside an
+  f-string, which is only legal on Python 3.12+.
+  Trixie (3.13) is fine. On Python 3.10 / 3.11
+  (e.g. Bookworm, Ubuntu 22.04) the file raises
+  SyntaxError, so "sphinx feats" cannot start.
+  Also: with switchboard "all", the shared audio_dir
+  is re-scanned per split (cache makes it cheap).
+end note
+@enduml

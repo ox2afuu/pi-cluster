@@ -1,0 +1,69 @@
+@startuml 02g-class-queue
+!include ../_style.iuml
+title CMU Sphinx reference: SphinxTrain job queue abstraction (the parallelism seam)
+
+class "SphinxTrain::Util" as U {
+  +RunTool(tool, logfile, ctlcount, args)
+  +RunScript(script, args) : system("perl", ...)
+  +LaunchScript(name, cmd, deps) : jobid
+  +WaitForScript(jobids)
+  +WaitForConvergence(logdir)
+  +TiedWaitForConvergence(logdir)
+  --
+  $ST::Q  lazily = new $CFG_QUEUE_TYPE
+}
+class Queue {
+  +new()
+  +submit_job(job) : rv
+  +query_job(id) : 0
+  +waitfor_job(id) : no-op
+  +cancel_job(id) : no-op
+}
+class "Queue::POSIX" as POSIX {
+  +submit_job(job) : pid
+  +query_job(pid) : kill 0
+  +waitfor_job(pid) : waitpid
+  +cancel_job(pid) : kill TERM
+}
+class "Queue::PBS" as PBS {
+  -pbsbin : path of qsub
+  +network_path(path)
+  +submit_job(job) : PBS job id
+  +query_job(id) : qstat
+  +waitfor_job(id) : poll qstat
+  +cancel_job(id) : qdel
+}
+class "Queue::Job" as JOB {
+  name
+  command : list
+  coderef / codeargs
+  deps : list of job ids
+  outfile, errfile  (qmanager/)
+  resources, variables
+}
+class "Queue::Slurm" as SLURM <<proposed, not upstream>> {
+  +submit_job(job) : sbatch ~--parsable
+  deps -> ~--dependency=afterok:a:b
+  +waitfor_job(id) : squeue / sacct
+}
+
+U --> Queue : $ST::Q
+Queue <|-- POSIX
+Queue <|-- PBS
+Queue <|-- SLURM
+Queue ..> JOB : creates
+
+note bottom of Queue
+  Queue: runs each job synchronously with system() as it is submitted.
+  So with the default queue, the NPART bw jobs run one after another.
+end note
+note bottom of POSIX
+  fork per job; the child spins on kill(0, deps)
+  until dependencies exit, then exec. Single host only.
+end note
+note bottom of PBS
+  writes a temp script and execs qsub with -N name, -o/-e,
+  -W depend=afterok:ids, -q $CFG_QUEUE_NAME. Needs a shared
+  filesystem at identical paths on every node.
+end note
+@enduml

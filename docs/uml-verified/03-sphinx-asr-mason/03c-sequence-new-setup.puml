@@ -1,0 +1,57 @@
+@startuml 03c-sequence-new-setup
+!include ../_style.iuml
+title sphinx-asr: "sphinx new" and "sphinx setup" (YAML in, SphinxTrain experiment out)
+
+actor Researcher as U
+participant "sphinx.sh" as SH
+participant "new_experiment.py" as NEW
+participant "setup.py" as SET
+participant "lib/config.py" as CFG
+participant "corpus adapter" as AD
+database "corpus/<name>/" as C
+database "experiments/NNN/" as E
+database "vendor/sphinxtrain/etc/" as V
+
+U -> SH : sphinx new -t librispeech
+SH -> NEW
+NEW -> C : corpus.yml + experiment.yml.template?
+NEW -> E : mkdir next number (001, 002, ...),\ncopy template -> experiment.yml
+U -> U : edit experiment.yml
+U -> SH : sphinx setup experiments/001
+SH -> SET
+SET -> CFG : load_experiment(exp_dir, root)
+CFG -> E : experiment.yml, validate_experiment
+CFG -> C : load_corpus per entry, _validate_split
+CFG --> SET : expanded experiment dict
+SET -> E : mkdir etc feat logdir bwaccumdir model_parameters\nmodel_architecture qmanager result presult
+loop each train (corpus, split)
+  SET -> AD : get_utterances(...)
+  AD -> C : read transcripts
+  AD --> SET : (fileid rel. to SPHINX_ROOT, TEXT)
+  SET -> E : etc/001_train.fileids, .transcription\n"~<s> TEXT ~</s> (fileid)"
+end
+SET -> AD : decode (corpus, split)
+SET -> E : etc/001_decode.fileids, .transcription
+SET -> SET : words = train words + decode words - fillers
+SET -> C : lexicon (train.dict or corpus dict)
+SET -> SET : Dictionary.build: strip stress digits,\nalt prons WORD(2), collect phones, OOV set
+SET -> E : 001.dic, 001_train.oov
+SET -> E : drop utterances with OOV words from\nBOTH train and decode lists
+SET -> E : 001.phone (+ SIL + corpus filler phones),\n001.filler (~<s> ~</s> <sil> + corpus fillers)
+SET -> V : feat.params template
+SET -> E : etc/feat.params (filters, cmn, samprate,\n-feat 1s_c_d_dd, svspec or removed)
+SET -> CFG : generate_sphinx_train_cfg (03d)
+CFG -> V : sphinx_train.cfg template
+CFG --> SET : text
+SET -> E : etc/sphinx_train.cfg
+SET --> U : "Setup complete"
+
+note right of E #FFE4E1
+  FINDING (methodology): decode utterances that contain
+  any word missing from the lexicon are silently removed.
+  WER is then measured on an in-vocabulary subset only,
+  which is optimistic and not comparable with published
+  LibriSpeech / Switchboard numbers. Report the count
+  printed as "Filtered n train, m decode utterances".
+end note
+@enduml

@@ -1,0 +1,57 @@
+@startuml 01c-sequence-run-pigen
+!include ../_style.iuml
+title Pi-Gen imaging: run_pigen() message flow across host, VM and container
+
+actor Operator
+participant "build.sh" as B
+participant "_pigen-podman.sh\nrun_pigen()" as H
+participant "podman machine VM\n(macOS only)" as VM
+participant "podman CLI" as P
+participant "container pigen_work\n(/pi-gen)" as C
+participant "pi-gen build.sh\n(inside container)" as PG
+database "pi-gen/deploy/\n(host)" as D
+
+Operator -> B : ./scripts/build.sh
+B -> B : assets + keys (01b)
+B -> H : run_pigen(configs/config.base)
+activate H
+H -> P : podman info / machine inspect
+P --> H : responsive, Rootful=true
+H -> VM : podman machine ssh\nlosetup -D; losetup -d stale loops
+H -> H : sed pi-gen/scripts/common (losetup -f | awk)
+H -> H : rm pi-gen/stage2/EXPORT_IMAGE
+H -> P : podman build -t pi-gen pi-gen/
+P --> H : image "pi-gen" (COPY . /pi-gen)
+H -> P : podman run ~--privileged (3 ro binds, 2 env vars)
+activate P
+P -> C : start
+activate C
+C -> C : dpkg-reconfigure qemu-user-binfmt\nmount binfmt_misc
+C -> C : in-container stale-loop cleanup
+C -> PG : ./build.sh -c /config
+activate PG
+PG -> PG : source /config\n(RELEASE=trixie, IMG_NAME=ivalice,\nFIRST_USER_NAME=ivalice, STAGE_LIST=...)
+loop stage0, stage1, stage2, /stages/stage-ivalice-base
+  PG -> PG : run_stage (01d)
+end
+loop each stage with EXPORT_IMAGE (only stage-ivalice-base)
+  PG -> PG : run_stage export-image\n(partition, copy rootfs, finalise)
+end
+PG --> C : deploy/<date>-ivalice.img
+deactivate PG
+C -> C : rsync work/*/build.log deploy/
+C --> P : exit 0
+deactivate C
+deactivate P
+H -> P : podman cp pigen_work:/pi-gen/deploy/. pi-gen/deploy/
+P -> D : ~*.img, build.log
+H -> P : podman logs > pi-gen/logs/build-podman.log
+alt ~*.img present
+  H -> P : podman rm -v pigen_work (unless PRESERVE_CONTAINER=1)
+  H --> B : done
+else no image
+  H --> Operator : ERROR, exit 1
+end
+deactivate H
+B --> Operator : ls -lh pi-gen/deploy/
+@enduml

@@ -1,0 +1,44 @@
+@startuml 02b-activity-e2e-pipeline
+!include ../_style.iuml
+title CMU Sphinx reference: end-to-end ASR pipeline, raw corpus to word error rate
+
+|Corpus preparation|
+start
+:audio (wav / sph / flac) + transcripts + pronunciation lexicon;
+:write etc/<db>_train.fileids + .transcription
+and <db>_test.fileids + .transcription
+(one utterance per line, "~<s> WORDS ~</s> (fileid)");
+:prune lexicon to the words used -> <db>.dic,
+derive phone set -> <db>.phone,
+noise/silence words -> <db>.filler;
+fork
+  |Feature extraction|
+  :sphinx_fe per utterance (000.comp_feat, or offline)
+  pre-emphasis, 25.6 ms Hamming frames every 10 ms,
+  FFT, mel filterbank (nfilt, lowerf..upperf),
+  log, DCT -> 13 cepstra, lifter 22;
+  :write <fileid>.mfc;
+fork again
+  |Language model|
+  :training text, one sentence per line;
+  :CMU SLM toolkit or other n-gram tool -> ARPA trigram;
+end fork
+|Acoustic model training|
+:00.verify: dictionary, phones, fileids,
+transcripts and features all consistent;
+:01/02 LDA + MLLT feature transform (optional);
+:10-20 context-independent (CI) HMM, Baum-Welch EM;
+:30 untied context-dependent (triphone) HMM;
+:40/45 phonetic decision trees, prune to CFG_N_TIED_STATES senones;
+:50 tied CD HMM, EM + Gaussian splitting
+up to CFG_FINAL_NUM_DENSITIES;
+:model_parameters/<db>.cd_cont_<N>/;
+|Decoding|
+:pocketsphinx_batch over test fileids
+(AM + LM + dict + feat.params, DEC_CFG_NPART slices);
+:hypotheses -> result/<db>-i-N.match, concatenated to <db>.match;
+|Scoring|
+:word_align.pl hyp vs reference transcription;
+:WER = (S + D + I) / N_ref, SER;
+stop
+@enduml

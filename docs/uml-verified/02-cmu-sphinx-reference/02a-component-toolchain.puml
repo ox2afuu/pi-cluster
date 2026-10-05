@@ -1,0 +1,57 @@
+@startuml 02a-component-toolchain
+!include ../_style.iuml
+title CMU Sphinx reference: toolchain components and their contracts
+
+package "SphinxTrain (acoustic model trainer)" {
+  component "Perl orchestration\nscripts/NN.step/slave_*.pl\n(00.verify ... 90.deleted_interpolation,\ndecode/slave.pl)" as PERL
+  component "SphinxTrain::Config\nSphinxTrain::Util\n(Log, RunTool, RunScript,\nLaunchScript, WaitFor*)" as STLIB
+  component "Queue, Queue::POSIX,\nQueue::PBS, Queue::Job" as Q
+  component "C tools (bin/)\nbw, norm, init_mixw, mk_mdef_gen,\nmk_flat, bldtree, prunetree, tiestate,\ninc_comp, map_adapt, sphinx3_align,\nmk_s2sendump, sphinx_fe ..." as CT
+  component "Python modules\ncmusphinx.lda, cmusphinx.mllt\n(numpy, scipy)" as PY
+  component "scripts/sphinxtrain\n(Python CLI: setup / run / -s step)" as STCLI
+}
+package "PocketSphinx (decoder)" {
+  component "pocketsphinx_batch" as PSB
+  component "libpocketsphinx\n(acoustic scoring, search:\nfwdtree, fwdflat, bestpath)" as LIBPS
+  component "pocketsphinx_lm_convert" as LMC
+}
+package "CMU-Cambridge SLM Toolkit (language model)" {
+  component "text2wfreq -> wfreq2vocab ->\ntext2idngram -> idngram2lm" as SLM
+}
+package "Scoring" {
+  component "word_align.pl\n(DEC_CFG_ALIGN=builtin)" as WA
+}
+
+interface "etc/sphinx_train.cfg\n(Perl: $CFG_*, $DEC_CFG_*)" as CFG
+interface "etc/feat.params\n(-lowerf -upperf -nfilt -feat -cmn ...)" as FP
+interface "etc/<db>_*.fileids / .transcription\n<db>.dic  <db>.filler  <db>.phone" as LISTS
+interface "*.mfc feature files" as MFC
+interface "model_parameters/<db>.cd_cont_<N>/\nmdef means variances mixture_weights\ntransition_matrices feat.params" as AM
+interface "ARPA / DMP / BIN LM" as LM
+
+STCLI --> PERL : runs steps in order
+PERL --> STLIB
+STLIB --> Q : LaunchScript -> submit_job
+PERL --> CT : RunTool
+PERL --> PY : 01/02 via python
+PERL ..> CFG : require
+PERL ..> LISTS
+CT ..> FP
+CT ..> MFC : bw reads features
+CT ..> AM : writes
+PERL --> PSB : decode/psdecode.pl
+PSB --> LIBPS
+PSB ..> AM
+PSB ..> LM
+PSB ..> MFC
+PERL --> WA : compute_acc
+SLM ..> LM : writes .arpa
+LMC ..> LM
+
+note bottom of Q
+  Parallelism lives here. CFG_NPART training slices and DEC_CFG_NPART
+  decode slices become Queue jobs. Default CFG_QUEUE_TYPE is "Queue"
+  (run inline, serial); "Queue::POSIX" forks locally;
+  "Queue::PBS" submits each job with qsub. No Slurm backend exists upstream.
+end note
+@enduml

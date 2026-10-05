@@ -1,0 +1,57 @@
+@startuml 01k-deployment-runtime-cluster
+!include ../_style.iuml
+title Pi-Gen imaging: runtime topology after convergence (DeskPi Super6C, 6 x CM4 Lite)
+
+node "Operator workstation" as OP
+node "DeskPi Super6C on-board GbE switch\n10.42.0.0/24, no gateway, no DNS server (mDNS only)" as SW
+
+node "dalmasca  10.42.0.1  (head, not a compute node)" as H {
+  component "slurmctld :6817" as CTL
+  component "munge" as MH
+  component "ivalice-postboot-ansible\n(one-shot, 01j)" as ANS
+  component "k3s server :6443\n(opt-in, traefik disabled)" as K3S
+  component "avahi-daemon" as AH
+}
+
+rectangle "Slurm partition default (5 workers, identical image and services)" as WG {
+  node "archadia\n10.42.0.11" as W1
+  node "rozarria\n10.42.0.12" as W2
+  node "bhujerba\n10.42.0.13" as W3
+  node "nabradia\n10.42.0.14" as W4
+  node "kerwon\n10.42.0.15" as W5
+}
+note bottom of WG
+  each worker runs: slurmd :6818, munge, avahi-daemon,
+  optional k3s-agent (NODE_K3S=yes): baked config points at
+https://dalmasca.local:6443, Ansible k3s_agent rewrites it to https://dalmasca:6443
+  4 CPUs, RealMemory 7800 MB, sched/backfill, select/cons_tres
+  CR_Core_Memory, MpiDefault=pmix, no accounting
+end note
+
+OP -down- SW : ssh ivalice@dalmasca(.local)
+SW -down- H
+SW -down- WG
+CTL ..> WG : slurm RPC (auth/munge,\nshared munge.key)
+ANS ..> WG : ssh as ivalice\n(key /root/.ssh/ivalice-cluster)
+
+note right of K3S #FFE4E1
+  FINDING: k3s default cluster-cidr is 10.42.0.0/16
+  (also written into group_vars/all.yml) and is not
+  overridden in config.head.yaml. That range contains
+  the node LAN 10.42.0.0/24, so opting into k3s puts
+  pod routes on top of host addresses. Set cluster-cidr
+  (e.g. 10.52.0.0/16) before enabling k3s.
+end note
+
+note bottom of SW #FFE4E1
+  FINDING (likely, verify with "scontrol show partition"): slurm.conf
+  declares PartitionName=default. Slurm treats the name DEFAULT
+  case-insensitively as the defaults record, not a real partition,
+  so sinfo / srun may report no partition. Rename it (e.g. "compute").
+end note
+note right of OP
+  Documented but not yet built:
+  NFSv4 export dalmasca:/srv/ivalice,
+  mounted on every worker as SPHINX_ROOT.
+end note
+@enduml
