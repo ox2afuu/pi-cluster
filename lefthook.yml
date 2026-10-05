@@ -1,0 +1,117 @@
+# Git hooks for documentation correctness. Install with `lefthook install`.
+# What each job catches and how to run it by hand:
+# docs/standards/documentation-workflow.md
+#
+# Submodules (pi-gen/, sphinx-asr/) are never linted from this repo.
+
+pre-commit:
+  parallel: true
+  jobs:
+    # Sequential (not piped): render first so a new diagram's renders exist
+    # before uml-check looks for them, and still run uml-check when the
+    # render fails so the error is reported with its line number.
+    - name: uml
+      glob: "docs/**/*.puml"
+      exclude: &submodules
+        - "pi-gen/**"
+        - "sphinx-asr/**"
+      group:
+        parallel: false
+        jobs:
+          - name: uml-render
+            glob: "docs/**/*.puml"
+            exclude: *submodules
+            # plantuml honours only the last -t flag, so SVG and PNG are two
+            # runs. The renders are new paths, so they are staged explicitly;
+            # stage_fixed re-stages the sources.
+            run: >-
+              plantuml -checkonly {staged_files} &&
+              plantuml -tsvg {staged_files} &&
+              plantuml -tpng {staged_files} &&
+              for f in {staged_files}; do git add -- "${f%.puml}.svg" "${f%.puml}.png"; done
+            stage_fixed: true
+          - name: uml-check
+            glob: "docs/**/*.puml"
+            exclude: *submodules
+            run: uv run --group docs python tools/docs/check_uml.py {staged_files}
+
+    - name: markdownlint
+      glob: "*.md"
+      exclude: *submodules
+      run: npx --yes markdownlint-cli2@0.23.3 {staged_files}
+
+    - name: doc-paths
+      glob: "*.md"
+      exclude: *submodules
+      run: uv run --group docs python tools/docs/check_doc_paths.py {staged_files}
+
+    - name: codespell
+      glob:
+        - "*.md"
+        - "*.puml"
+        - "*.py"
+        - "*.sh"
+        - "*.yml"
+        - "*.yaml"
+      exclude: *submodules
+      run: uvx codespell@2.4.3 {staged_files}
+
+    - name: no-emoji
+      exclude:
+        - "pi-gen/**"
+        - "sphinx-asr/**"
+        - "*.png"
+        - "*.jpg"
+        - "*.jpeg"
+        - "*.gif"
+        - "*.ico"
+        - "*.pdf"
+        - "*.docx"
+        - "*.zst"
+        - "*.gz"
+        - "uv.lock"
+      run: uv run --group docs python tools/docs/check_no_emoji.py {staged_files}
+
+    - name: shellcheck
+      glob: "*.sh"
+      exclude: *submodules
+      run: shellcheck {staged_files}
+
+    - name: mkdocs-strict
+      glob:
+        - "docs/**"
+        - "mkdocs.yml"
+        - "tools/docs/**"
+        - "*.md"
+        - "pyproject.toml"
+        - "uv.lock"
+      exclude: *submodules
+      # mkdocs_build.py == `mkdocs build` with filtered output. It does not
+      # use --quiet, which would hide the warnings --strict counts.
+      run: uv run --group docs python tools/docs/mkdocs_build.py --strict --site-dir .cache/mkdocs-check
+
+post-commit:
+  # Never blocks (git ignores post-commit status anyway) and never touches
+  # tracked files: the site goes to site/ (gitignored), --frozen keeps uv
+  # from rewriting uv.lock, and the vault note is written outside the repo
+  # only when IVALICE_VAULT_DIR is set.
+  piped: true
+  jobs:
+    - name: site-build
+      run: >-
+        uv run --frozen --group docs python tools/docs/mkdocs_build.py --site-dir site
+        || echo "WARNING: post-commit site build failed; run 'uv run --group docs mkdocs build' to see why"
+    - name: vault-export
+      run: >-
+        uv run --frozen --group docs python tools/docs/export_vault_note.py --site-dir site
+        || echo "WARNING: post-commit vault export failed"
+
+pre-push:
+  parallel: true
+  jobs:
+    - name: mkdocs-strict-full
+      run: uv run --group docs python tools/docs/mkdocs_build.py --strict --site-dir .cache/mkdocs-check-push
+    - name: doc-paths-all
+      run: git ls-files -z -- '*.md' ':!:pi-gen/**' ':!:sphinx-asr/**' | xargs -0 uv run --group docs python tools/docs/check_doc_paths.py
+    - name: docs-tests
+      run: uv run --group docs --with pytest pytest tools/docs/tests -q

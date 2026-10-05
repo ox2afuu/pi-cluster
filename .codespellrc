@@ -1,0 +1,10 @@
+# codespell configuration (run by the lefthook pre-commit "codespell" job).
+# Domain terms that codespell would "correct":
+#   ser    sentence error rate (SER), next to WER
+#   te     TE = the type variable / field abbreviation used in UML class diagrams
+#   pigen  pi-gen, the Raspberry Pi image builder (PiGen in diagram aliases)
+#   ans    shell variable for a y/N answer in scripts/personalize-node.sh
+[codespell]
+skip = ./pi-gen,./sphinx-asr,./site,./.cache,./.venv,*.svg,*.png,uv.lock,./assets,./graft,./.omc
+ignore-words-list = ser,te,pigen,ans
+check-hidden = false

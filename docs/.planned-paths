@@ -1,0 +1,29 @@
+# Paths that docs may cite although they do not exist in a fresh clone.
+# One glob per line (fnmatch syntax, matched against repo-relative paths
+# and their parents). Used by tools/docs/check_doc_paths.py.
+
+# --- Planned components (CLAUDE.md / README.md roadmap, not built yet) ---
+stages/stage-ivalice-base/10-sphinx-asr
+scripts/stage-corpus.sh
+scripts/smoke-sphinx.sh
+assets/sphinx-wheels
+assets/corpora
+docs/daily-logs
+
+# --- Airgap payloads: gitignored, created by scripts/download-assets.sh
+#     and the generate-*.sh scripts (see assets/README.md) ---
+assets/K3S_VERSION
+assets/k3s
+assets/k3s-install.sh
+assets/k3s-airgap-images-arm64.tar.zst
+assets/ohmyzsh.tar.gz
+assets/ivalice-cluster
+assets/ivalice-cluster.pub
+assets/munge.key
+assets/cluster-token
+
+# --- Build outputs: gitignored, created by scripts/build.sh ---
+pi-gen/deploy
+pi-gen/logs
+pi-gen/work
+pi-gen/build.log

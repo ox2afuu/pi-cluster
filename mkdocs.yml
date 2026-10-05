@@ -1,0 +1,106 @@
+site_name: ivaliceCluster engineering wiki
+site_description: >-
+  Canonical engineering reference for the ivaliceCluster Raspberry Pi CM4
+  research cluster and the sphinx-asr workload it runs.
+repo_name: ivaliceCluster
+docs_dir: docs
+site_dir: site
+strict: true
+
+# Directories under docs/ that are not wiki pages.
+exclude_docs: |
+  .planned-paths
+  SUMMARY.md
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: info
+  nav:
+    omitted_files: info
+    not_found: warn
+    absolute_links: info
+  links:
+    not_found: warn
+    anchors: warn
+    absolute_links: warn
+    unrecognized_links: info
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - search.highlight
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+hooks:
+  - tools/docs/mkdocs_hooks.py
+
+plugins:
+  - search
+  - gen-files:
+      scripts:
+        - tools/docs/gen_api.py
+        - tools/docs/gen_uml.py
+        - tools/docs/gen_experiments.py
+  - literate-nav:
+      nav_file: SUMMARY.md
+  - section-index
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths:
+            - sphinx-asr/scripts
+            - sphinx-asr/scripts/lib
+          options:
+            docstring_style: google
+            show_source: true
+            show_signature_annotations: true
+            separate_signature: true
+            members_order: source
+            show_root_heading: false
+            heading_level: 2
+            filters: []
+  - git-revision-date-localized:
+      fallback_to_build_date: true
+      enable_creation_date: true
+      enable_git_follow: false
+      type: iso_date
+  - glightbox:
+      zoomable: true
+      draggable: true
+      skip_classes:
+        - no-lightbox
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format

@@ -44,20 +44,23 @@ Install on macOS: `brew install plantuml` (pulls in graphviz).
 Install on Debian/Trixie: `apt install plantuml graphviz default-jre`.
 
 Render a whole package:
+
 ```
 plantuml -tsvg docs/uml/01-build-lifecycle/*.puml
 plantuml -tpng docs/uml/01-build-lifecycle/*.puml
 ```
 
 Render everything:
+
 ```
 plantuml -tsvg docs/uml/**/*.puml
 plantuml -tpng docs/uml/**/*.puml
 ```
 
 Regenerate after editing any `.puml` and commit the updated `.svg` + `.png`
-in the same change. A pre-commit hook that runs the above and stages the
-outputs is a reasonable future addition; not required yet.
+in the same change. The lefthook pre-commit hook now does this for staged
+`.puml` files and stages the renders; see
+[Documentation workflow](../standards/documentation-workflow.md).
 
 ## Phase 0 acceptance gate
 

@@ -1,0 +1,4 @@
+# Follow `. "$(dirname "$0")/_pigen-podman.sh"` style sources relative to
+# the script being checked (scripts/build.sh sources its helper this way).
+external-sources=true
+source-path=SCRIPTDIR
