@@ -117,10 +117,13 @@ build-image:
       allow_failure: true
   script:
     - scripts/ci/build-image.sh
+    # The .img.xz (~1.1 GiB) exceeds GitLab's artifact size limit; it stays
+    # on the runner and verify-image (same runner) reads out/IMAGE_PATH.
+    - scripts/ci/store-image.sh out
   artifacts:
     name: "ivalice-image-$CI_COMMIT_SHORT_SHA"
-    # The image carries ephemeral keys and the IC-4 default password:
-    # treat these artifacts as secret and never publish them.
+    # The image (kept on the runner) carries ephemeral keys and the IC-4
+    # default password: treat it as secret and never publish it.
     expose_as: image manifest
     paths:
       - out/image-manifest.json
@@ -145,7 +148,7 @@ verify-image:
       --manifest out/image-manifest.json
       --junit out/verify/junit.xml
       --tap out/verify/verify.tap
-      out/*.img.xz
+      "$(cat out/IMAGE_PATH)"
   artifacts:
     when: always
     expire_in: 1 week

@@ -12,10 +12,10 @@ independent of CI.
     `/root/.ssh/`) and the published default password from
     `configs/config.base` with `PUBKEY_ONLY_SSH=0` and passwordless sudo
     (review finding IC-4, still open). Anyone holding the `.img.xz` can
-    log in to a node flashed from it. Treat the `build-image` artifacts as
-    secret: keep the project private, do not attach images to releases or
-    packages, and do not copy them off the operator's machines. They
-    expire after one week.
+    log in to a node flashed from it. Treat the image store on the
+    runner (`/var/lib/ivalice-images/`) as secret: keep the project
+    private, do not attach images to releases or packages, and do not copy
+    them off the operator's machines. Only the five newest builds are kept.
 
 ## Runner topology
 
@@ -168,12 +168,24 @@ cluster key. Set `IVALICE_REQUIRE_OPERATOR_KEY=1` to make that an error.
 
 ## Artifacts
 
-`build-image` uploads `out/` (kept one week; the manifest is linked from
-merge requests through `artifacts:expose_as`):
+The compressed image (about 1.1 GiB) is larger than the instance's
+`max_artifacts_size` (1024 MB), so it never goes through GitLab.
+`scripts/ci/store-image.sh` moves it to
+`/var/lib/ivalice-images/<pipeline id>/` on the `pigen-builder` VM, keeps
+the five newest builds (`IVALICE_IMAGE_KEEP`), and writes the path to
+`out/IMAGE_PATH`; `verify-image` runs on the same runner and reads it from
+there. To flash a CI image, copy it off the VM:
+
+```sh
+limactl copy pigen-builder:/var/lib/ivalice-images/<pipeline id>/<date>-ivalice.img.xz .
+```
+
+`build-image` uploads the rest of `out/` (kept one week; the manifest is
+linked from merge requests through `artifacts:expose_as`):
 
 | File | Content |
 | --- | --- |
-| `out/<date>-ivalice.img.xz` | the image |
+| `out/IMAGE_PATH` | where the image sits on the runner |
 | `out/image-manifest.json` | repo sha and branch, pi-gen and sphinx-asr submodule shas, pi-gen version (`git describe`) and arch, k3s version, sha256 of `configs/config.base` and every file in `assets/`, sha256 and size of the raw image and of the `.xz`, pipeline and job ids |
 | `out/sphinx-asr-IMAGE-MANIFEST.txt` | the manifest baked into the image (see [Lab image](lab-image.md)) |
 | `out/build.log`, `out/*.info` | pi-gen's build log and package list |
@@ -183,10 +195,12 @@ merge requests through `artifacts:expose_as`):
 publishes the JUnit file as a test report, so failed checks show up in the
 pipeline's Tests tab and in merge requests.
 
-!!! warning "Artifact size limit"
-    The instance's `max_artifacts_size` is 1024 MB. The build warns when
-    the `.img.xz` passes 1000 MiB; if uploads start failing, an
-    administrator has to raise the instance or project limit.
+!!! note "Why the image is not an artifact"
+    The first build (pipeline 130) produced a 1072 MiB `.img.xz` and its
+    upload failed with HTTP 413. Raising `max_artifacts_size` would also
+    work, but keeping the image on the runner avoids pushing a gigabyte
+    through GitLab on every build, and keeps the secrets-bearing image on
+    one machine.
 
 ## Running a build by hand
 
