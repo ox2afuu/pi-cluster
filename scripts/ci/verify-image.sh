@@ -183,7 +183,7 @@ esac
 
 LOOP="$(sudo losetup --find --show --partscan --read-only "${RAW}")" \
   || setup_fail "losetup failed"
-command -v udevadm >/dev/null 2>&1 && sudo udevadm settle -t 10 || true
+if command -v udevadm >/dev/null 2>&1; then sudo udevadm settle -t 10 || true; fi
 ROOT_DEV=""
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   ROOT_DEV="$(lsblk -nrpo NAME,LABEL "${LOOP}" | awk '$2 == "rootfs" {print $1; exit}')"
@@ -280,7 +280,9 @@ check sphinx-asr "/srv/ivalice is owned 1000:1000 recursively" owned_by_ivalice
 BIN="${MNT}${SPHINX_ROOT}/bin/aarch64"
 tool_ok() {
   local path="${BIN}/$1" f missing
-  [ -f "${path}" ] && [ -x "${path}" ] || { echo "missing or not executable"; return 1; }
+  if [ ! -f "${path}" ] || [ ! -x "${path}" ]; then
+    echo "missing or not executable"; return 1
+  fi
   f="$(file -b "${path}")"
   case "${f}" in *"ELF 64-bit"*"ARM aarch64"*) ;; *) echo "${f}"; return 1 ;; esac
   missing="$(in_root ldd "${SPHINX_ROOT}/bin/aarch64/$1" 2>&1 | grep 'not found' || true)"

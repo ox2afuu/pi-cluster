@@ -50,6 +50,8 @@ variables:
     PIP_DISABLE_PIP_VERSION_CHECK: "1"
     NO_MKDOCS_2_WARNING: "true"
     DISABLE_MKDOCS_2_WARNING: "true"
+    # git 2.47 (Debian 13) mishandles `git log --diff-filter=r`; see mkdocs.yml.
+    REVDATE_STRICT: "false"
   cache:
     key: uv-python312
     paths:
