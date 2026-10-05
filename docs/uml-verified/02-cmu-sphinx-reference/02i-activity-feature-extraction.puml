@@ -1,0 +1,30 @@
+@startuml 02i-activity-feature-extraction
+!include ../_style.iuml
+title CMU Sphinx reference: front end, from samples to the feature vectors the HMM sees
+
+start
+partition "Offline: sphinx_fe (static cepstra, written to .mfc)" {
+  :read audio: -mswav / -nist / -raw, or -sox for other formats;
+  :resample check vs -samprate (16000 or 8000 Hz);
+  :pre-emphasis (alpha 0.97);
+  :frame: 0.025625 s Hamming window, 100 frames per second;
+  :FFT power spectrum;
+  :mel filterbank: -nfilt filters between -lowerf and -upperf
+  (wideband 25 / 130-6800 Hz, telephone 15 / 200-3500 Hz);
+  :log energies, DCT (-transform dct), keep 13 cepstra;
+  :cepstral lifter (-lifter 22);
+  :write <fileid>.mfc;
+}
+partition "At train and decode time (feat.params, inside bw / pocketsphinx)" {
+  :cepstral mean normalisation (-cmn current|live|batch|none);
+  :optional variance norm (-varnorm), AGC (-agc);
+  :dynamic features (-feat 1s_c_d_dd):
+  c[13] + delta[13] + delta-delta[13] = 39 dims;
+  if (LDA/MLLT trained?) then (yes)
+    :project with <db>.lda to CFG_LDA_DIMENSION
+    (e.g. 29 or 32), then rotate with <db>.mllt;
+  endif
+}
+:feature vector o_t per 10 ms frame -> GMM state likelihoods;
+stop
+@enduml

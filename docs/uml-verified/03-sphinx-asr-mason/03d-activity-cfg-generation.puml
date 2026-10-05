@@ -1,0 +1,49 @@
+@startuml 03d-activity-cfg-generation
+!include ../_style.iuml
+title sphinx-asr: how etc/sphinx_train.cfg is generated (override precedence, lowest to highest)
+
+start
+:read vendor/sphinxtrain/etc/sphinx_train.cfg (upstream template);
+:replace placeholders ~_~_~_DB_NAME~_~_~_ = experiment dir name,
+~_~_~_BASE_DIR~_~_~_ = experiment dir, ~_~_~_SPHINXTRAIN_DIR~_~_~_,
+~_~_~_SPHINXTRAIN_BIN_DIR~_~_~_ = bin/<arch>;
+:overrides from train.corpora[0] corpus.yml
+CFG_WAVFILE_EXTENSION, CFG_WAVFILE_TYPE, CFG_WAVFILE_SRATE,
+CFG_NUM_FILT, CFG_LO_FILT, CFG_HI_FILT, CFG_CMN;
+:fixed globals
+CFG_CASEDSYMBOLS = yes, CFG_G2P_MODEL = no;
+:paths
+CFG_WAVFILES_DIR = CFG_FEATFILES_DIR = DEC_CFG_FEATFILES_DIR = SPHINX_ROOT
+(fileids are relative to SPHINX_ROOT, .mfc sits next to the audio);
+if (decode.lm in experiment.yml?) then (yes)
+  :DEC_CFG_LANGUAGEMODEL = SPHINX_ROOT/decode.lm;
+elseif (corpus.yml of decode corpus has lm?) then (yes)
+  :DEC_CFG_LANGUAGEMODEL = corpus dir/lm;
+else (none)
+  :ERROR "no language model defined"
+  (suggests sphinx lm <corpus> ~--all);
+  stop
+endif
+:DEC_CFG_LISTOFFILES = etc/<db>_decode.fileids
+DEC_CFG_TRANSCRIPTFILE = etc/<db>_decode.transcription;
+:experiment.yml sphinxtrain: map applied LAST (wins);
+partition "_apply_overrides(key, value) for each key" {
+  :_to_perl_value: bool -> 'yes'/'no', int/float -> bare,
+  numeric-looking string (1e-80) -> bare, contains $ -> "double",
+  else 'single';
+  if (uncommented "$KEY = value" line exists?) then (yes)
+    :replace value in every match;
+  elseif (commented # $KEY = ... line exists?) then (yes)
+    :uncomment first match and set value;
+  else (no)
+    :key silently ignored;
+  endif
+}
+:write experiments/NNN/etc/sphinx_train.cfg;
+stop
+note right
+  A misspelled key under sphinxtrain:
+  (e.g. CFG_NTIED_STATES) produces no
+  error. It is simply dropped.
+end note
+@enduml

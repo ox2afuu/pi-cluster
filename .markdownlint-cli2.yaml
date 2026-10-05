@@ -1,0 +1,40 @@
+# markdownlint-cli2 configuration (run by the lefthook pre-commit
+# "markdownlint" job on staged *.md files).
+config:
+  default: true
+  # Line length: prose is wrapped by hand, tables and links are long.
+  MD013: false
+  # Inline HTML: md_in_html blocks, <br> in table cells, HTML comments in
+  # SUMMARY.md. Only these elements are allowed.
+  MD033:
+    allowed_elements: [br, div, figure, figcaption, img, span, details, summary, a]
+  # MkDocs admonitions (!!! note) and pymdownx.details (??? note) bodies are
+  # indented four spaces; markdownlint reads them as indented code blocks.
+  MD046: false
+  # literate-nav SUMMARY.md and nested lists use 4-space indentation, which
+  # Python-Markdown requires for nesting.
+  MD007:
+    indent: 4
+  # Repeated headings are fine in different sections (e.g. per corpus).
+  MD024:
+    siblings_only: true
+  # Pre-existing files use unlabelled fences for plain text and file trees.
+  MD040: false
+  # The uml-verified README uses bold lines as group labels.
+  MD036: false
+  # Tables are hand-aligned in some files and compact in others.
+  MD060: false
+  # The first line of SUMMARY.md is an HTML comment, not a heading.
+  MD041: false
+
+ignores:
+  - "pi-gen/**"
+  - "sphinx-asr/**"
+  - "site/**"
+  - ".cache/**"
+  - ".venv/**"
+  - ".omc/**"
+  - "graft/**"
+  - "node_modules/**"
+  - "CLAUDE.md"
+  - "AGENTS.md"

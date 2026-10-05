@@ -1,0 +1,65 @@
+@startuml 01e-component-stage-layering
+!include ../_style.iuml
+title Pi-Gen imaging: rootfs layering, what each stage contributes
+
+component S0 [
+<b>stage0  (upstream, bootstrap)</b>
+prerun.sh: debootstrap trixie
+00-configure-apt: RPi apt repo + key
+01-locale
+02-firmware: kernel + firmware
+]
+component S1 [
+<b>stage1  (upstream, minimal bootable)</b>
+00-boot-files: cmdline.txt, config.txt
+01-sys-tweaks: first user, fstab
+02-net-tweaks: hostname
+03-install-packages
+]
+component S2 [
+<b>stage2  (upstream, Raspberry Pi OS Lite)</b>
+00-copies-and-fills
+01-sys-tweaks: ssh, sudo, NetworkManager
+02-net-tweaks
+03-set-timezone, 03-accept-mathematica-eula
+04-cloud-init
+EXPORT_IMAGE <i>removed by _pigen-podman.sh</i>
+]
+component S35 [
+<b>stage3, stage4, stage5</b>
+desktop variants
+SKIP + SKIP_IMAGES, not in STAGE_LIST
+]
+component SI [
+<b>stages/stage-ivalice-base  (this repo)</b>
+prerun.sh: copy_previous (stage2 rootfs)
+00-ivalice-base/00-packages: ~50 debs
+  slurmctld, slurmd, munge, libpmix2, ansible-core,
+  cloud-init, podman, avahi, zsh, neovim, build tools
+00-ivalice-base/01-run.sh: files/ overlay, userconf.txt,
+  airgap assets into rootfs, chroot service config (see 01f)
+EXPORT_IMAGE: IMG_SUFFIX=""
+]
+component EX [
+<b>export-image  (upstream)</b>
+00-allow-rerun, 01-user-rename, 02-set-sources,
+03-network, 04-set-partuuid, 05-finalise
+]
+artifact IMG [
+<b>deploy/<date>-ivalice.img</b>
+bootfs (FAT) + rootfs (ext4)
+]
+
+S0 --> S1 : rootfs
+S1 --> S2 : rootfs
+S2 --> SI : rootfs
+S35 ..> SI : skipped
+SI --> EX : EXPORT_DIRS
+EX --> IMG
+
+note right of SI
+  This is the only custom stage. There is no
+  10-sphinx-asr sub-stage yet (CLAUDE.md lists one),
+  so the image does not contain sphinx-asr.
+end note
+@enduml

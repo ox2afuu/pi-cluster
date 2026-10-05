@@ -1,0 +1,39 @@
+@startuml 03k-deployment-cluster-integration-gap
+!include ../_style.iuml
+title sphinx-asr on the ivalice cluster: what exists today vs what the cluster docs assume
+
+node "dalmasca (head)" as H {
+  component "slurmctld" as CTL
+  folder "/srv/ivalice/sphinx-asr\n(SPHINX_ROOT, planned)" as ROOT #FFFFFF
+}
+node "worker x5" as W {
+  component "slurmd" as SD
+}
+
+component "sphinx.sh run_script()" as RS
+component "SphinxTrain Queue layer\nCFG_QUEUE_TYPE" as Q
+component "Queue::POSIX\n(templates default)" as QP
+component "Queue::PBS (qsub)" as QPBS
+component "Queue::Slurm\n(proposed, ~150 lines Perl,\ndocs/uml/04-slurm-integration)" as QS
+
+RS --> Q
+Q --> QP : today: forks CFG_NPART jobs\non ONE node
+Q ..> QPBS : needs Torque qsub
+Q ..> QS : not written
+QS ..> CTL : sbatch ~--dependency=afterok
+CTL --> SD
+QP ..> H : all work on the node running "sphinx train"
+
+note bottom of ROOT #FFE4E1
+  Gaps between docs and code (as of the commits read):
+  1. No NFS server/client packages or exports in the image.
+  2. No stage 10-sphinx-asr and no 60-sphinx-asr.yml playbook;
+     the image does not contain sphinx-asr, wheels, or bin/aarch64.
+  3. sphinx.sh qsub path targets missing scripts/sphinx_job.sh.
+  4. Templates set CFG_NPART = DEC_CFG_NPART = 1 and Queue::POSIX,
+     so even on one CM4 only one of 4 cores is used until raised to 4.
+  5. Experiment paths are written as absolute paths into
+     sphinx_train.cfg at setup time, so setup must run under the
+     same SPHINX_ROOT path every node will see.
+end note
+@enduml

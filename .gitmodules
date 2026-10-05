@@ -3,4 +3,4 @@
 	url = https://github.com/RPi-Distro/pi-gen.git
 [submodule "sphinx-asr"]
 	path = sphinx-asr
-	url = git@github.com:masonarmand/sphinx-asr.git
+	url = https://github.com/ox2afuu/sphinx-asr.git

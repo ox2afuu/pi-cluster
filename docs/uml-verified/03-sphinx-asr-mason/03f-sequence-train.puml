@@ -1,0 +1,67 @@
+@startuml 03f-sequence-train
+!include ../_style.iuml
+title sphinx-asr: "sphinx train experiments/NNN [~--from-step S]" (train.py)
+
+actor Researcher as U
+participant "sphinx.sh\nrun_script()" as SH
+participant "train.py" as T
+participant "perl NN.step/slave_*.pl\n(vendor/sphinxtrain)" as P
+participant "patched mllt.py" as M
+database "experiments/NNN/" as E
+
+U -> SH : sphinx train experiments/001
+alt qsub on PATH
+  SH -> SH : qsub scripts/sphinx_job.sh (missing file)
+else normal
+  SH -> T : python scripts/train.py experiments/001
+end
+T -> T : chdir(exp_dir), load_experiment
+T -> T : resolve_mllt_seed(pipeline.mllt_init)
+alt eye (default)
+  T -> T : unset SPHINXASR_MLLT_SEED
+else random | int
+  T -> T : export SPHINXASR_MLLT_SEED=<seed>\n(printed for reproducibility)
+end
+opt ~--from-step S
+  T -> T : start at first step whose name contains S
+end
+loop 13 steps: 00.verify, 01.lda_train, 02.mllt_train, 05.vector_quantize,\n10.falign_ci_hmm, 11.force_align, 12.vtln_align, 20.ci_hmm, 30.cd_hmm_untied,\n40.buildtrees, 45.prunetree, 50.cd_hmm_tied, 90.deleted_interpolation
+  T -> P : Popen perl <script>, stream stdout live
+  P -> E : reads etc/sphinx_train.cfg (cwd), runs\nBaum-Welch via $CFG_QUEUE_TYPE (02e)
+  opt 02.mllt_train
+    P -> M : python mllt.py
+    M -> M : seed set ? A = I + 0.1 * random : A = I
+  end
+  P --> T : exit code + output
+  T -> T : print "Step time"
+  alt exit != 0 and no artifact missing (intended for MLLT exit 1\nwith a valid <db>.mllt, but ALSO every step with no artifacts listed)
+    T -> T : WARNING, continue
+  else exit != 0 and an expected artifact missing (01 or 02 only)
+    T -> E : tail *.<step>.log
+    T --> U : exit with step code
+  end
+  alt output contains "Skipped"
+    T -> T : no validation for this step
+  else
+    T -> E : check artifacts non-empty\n(01: <db>.lda, 02: <db>.mllt)
+    T -> E : scan logdir/<step>/*.log:\n"0 frames" / "FATAL" -> fatal,\n"failed" / "Aborting" -> warning
+  end
+end
+T --> U : "Training complete. Total time: h m s"
+
+note left of T #FFE4E1
+  FINDING: only 01.lda_train and 02.mllt_train declare artifacts.
+  For the other 11 steps check_artifacts() returns no errors, so a
+  non-zero exit (e.g. a failed Baum-Welch step) prints a WARNING and
+  training continues; log patterns "failed"/"Aborting" are warnings
+  too. Only "0 frames"/"FATAL" in a step's logdir stop the run.
+  Declare artifacts for 20/30/50 (model_parameters dirs).
+end note
+note right of T
+  Differences from upstream "sphinxtrain run":
+  no 000.comp_feat (use sphinx feats), no g2p,
+  no 60-65 MMIE, decode is a separate command.
+  Step timings are printed but not saved
+  (TODO: results.yml).
+end note
+@enduml

@@ -1,0 +1,47 @@
+@startuml 02f-activity-convergence-splitting
+!include ../_style.iuml
+title CMU Sphinx reference: convergence and Gaussian-splitting decision in norm_and_launchbw.pl
+
+start
+:n_gau = CFG_INITIAL_NUM_DENSITIES, iter = 1;
+repeat
+  :Baum-Welch over CFG_NPART parts, then norm;
+  :L = total likelihood / total frames;
+  if (previous norm.log exists?) then (no)
+    :first iteration at this n_gau, just iterate;
+    :iter = iter + 1;
+  else (yes)
+    :ratio = L - L_prev;
+    if (ratio < 0?) then (yes)
+      :WARNING negative convergence ratio,
+      check data and transcripts;
+    endif
+    if (ratio > CFG_CONVERGENCE_RATIO and iter >= CFG_MAX_ITERATIONS?) then (yes)
+      :stop iterating at this n_gau
+      ("Maximum desired iterations performed");
+      :split Gaussians if n_gau < FINAL;
+    elseif (ratio > CFG_CONVERGENCE_RATIO or iter < CFG_MIN_ITERATIONS?) then (yes)
+      :iter = iter + 1;
+    else (converged)
+      :split Gaussians;
+    endif
+  endif
+  note right
+    Split rule (continuous models):
+    if FINAL >= 2 x n_gau then add n_gau (double)
+    else add FINAL - n_gau.
+    After a split the new n_gau restarts at iter 0.
+    When n_gau == FINAL: final split_gaussians with 0
+    new components, then TRAINING COMPLETE.
+    Semi-continuous: mk_s2sendump instead.
+  end note
+repeat while (n_gau < CFG_FINAL_NUM_DENSITIES or not converged?) is (yes)
+:model_parameters/<db>.cd_cont_<N>/ final;
+stop
+note left
+  Upstream defaults (etc/sphinx_train.cfg):
+  CFG_MIN_ITERATIONS = 1
+  CFG_MAX_ITERATIONS = 10
+  CFG_CONVERGENCE_RATIO = 0.1
+end note
+@enduml

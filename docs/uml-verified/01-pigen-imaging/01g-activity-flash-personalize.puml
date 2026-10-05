@@ -1,0 +1,66 @@
+@startuml 01g-activity-flash-personalize
+!include ../_style.iuml
+title Pi-Gen imaging: flash and personalize one SD card (scripts/personalize-node.sh, macOS)
+
+start
+:Flash pi-gen/deploy/*-ivalice.img to the SD card
+(manual: Raspberry Pi Imager, balenaEtcher or dd);
+note right
+  No flash script exists in the repo. CM4 Lite
+  boots from SD, so usbboot/rpiboot (present in
+  cmCluster/usbboot) is only needed for eMMC CM4s.
+end note
+:Re-insert card, macOS mounts the FAT partition as "bootfs";
+:./scripts/personalize-node.sh [args] [~--with-k3s] [~--force];
+if (~--list?) then (yes)
+  :print [done]/[pending] per host from .last-personalize;
+  stop
+endif
+if (0 positional args? (auto)) then (yes)
+  :next host in order dalmasca, archadia, rozarria,
+  bhujerba, nabradia, kerwon not in .last-personalize;
+  :needs a TTY, prompt "Proceed? [y/N]";
+elseif (1-2 args? (shortcut)) then (yes)
+  :hostname [disk], role and IP from HOST_IPS table;
+elseif (3-4 args? (legacy)) then (yes)
+  :role host ip/cidr [disk], validated against
+  HOST_IPS unless ~--force;
+else (other)
+  :usage, exit 2;
+  stop
+endif
+if (uname is Darwin?) then (no)
+  :ERROR macOS only (diskutil);
+  stop
+endif
+:find mount point (diskutil info bootfs, or <disk>s1);
+:compose ivalice-node.conf
+NODE_ROLE, NODE_HOSTNAME, NODE_IP (CIDR), NODE_K3S=yes|no;
+if (existing conf on card?) then (yes)
+  if (same NODE_* values?) then (yes)
+    :"[ok] unchanged", eject;
+    stop
+  elseif (~--force?) then (no)
+    :ERROR refuse to overwrite;
+    stop
+  else (yes)
+  endif
+endif
+if (role head and a head was written to a different disk < 24 h ago?) then (yes)
+  :WARNING two heads would fight for 10.42.0.1;
+endif
+:write /Volumes/bootfs/ivalice-node.conf;
+:append role|host|ip|disk|timestamp to .last-personalize;
+:diskutil eject;
+stop
+
+note right #FFE4E1
+  FINDING 1: README quick start calls
+  "~--hostname X ~--ip Y ~--role Z". The script
+  has no such flags: 6 positionals hit the
+  usage branch. Use "personalize-node.sh X".
+  FINDING 2: "declare -A" needs bash 4+;
+  macOS /bin/bash is 3.2, so this needs
+  Homebrew bash first on PATH.
+end note
+@enduml

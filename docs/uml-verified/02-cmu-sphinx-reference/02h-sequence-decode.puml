@@ -1,0 +1,29 @@
+@startuml 02h-sequence-decode
+!include ../_style.iuml
+title CMU Sphinx reference: decode and score (scripts/decode/slave.pl)
+
+participant "caller" as C
+participant "decode/slave.pl" as S
+participant "Queue backend" as Q
+participant "psdecode.pl\npart i of DEC_CFG_NPART" as PD
+participant "pocketsphinx_batch" as PS
+database "result/" as R
+participant "word_align.pl" as WA
+
+C -> S : perl decode/slave.pl
+loop i = 1..DEC_CFG_NPART
+  S -> Q : LaunchScript decode [psdecode.pl, i, N]
+  Q -> PD : run
+  PD -> PD : ctloffset / ctlcount = slice i of test fileids
+  PD -> PS : RunTool pocketsphinx_batch\n-hmm final AM, -lm DEC_CFG_LANGUAGEMODEL, -dict,\n-feat CFG_FEATURE, -agc/-cmn/-varnorm from DEC_CFG_*,\n-beam -wbeam -lw -wip ..., -ctl/-ctloffset/-ctlcount, -cepdir
+  PS -> PS : per utterance: read .mfc, compute dynamic features,\napply LDA/MLLT if model has them,\nViterbi beam search (fwdtree, fwdflat, bestpath)
+  PS -> R : <db>-i-N.match  "WORDS (fileid score)"
+end
+S -> Q : WaitForScript all decode jobs
+S -> R : concat_hyp -> <db>.match\n(strip scores and paths)
+S -> S : condition_text(hyp), condition_text(ref)\n(upper-case unless CFG_CASEDSYMBOLS=yes)
+S -> WA : align_hyp(ref, hyp)
+WA --> S : "TOTAL Words: n Correct: c Errors: e"\n"TOTAL Percent correct = .. Error = .. Accuracy = .."
+S -> R : <db>.align (slave.pl writes word_align output)
+S -> C : SENTENCE ERROR / WORD ERROR RATE lines (stdout + log)
+@enduml

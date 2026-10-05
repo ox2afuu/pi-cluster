@@ -1,0 +1,82 @@
+@startuml 03a-component-architecture
+!include ../_style.iuml
+title sphinx-asr (Mason Armand): architecture of the wrapper around SphinxTrain + PocketSphinx
+
+actor "Researcher" as U
+component "sphinx.sh\n(single entry point,\noptional symlink /usr/local/bin/sphinx)" as SH
+component ".venv/\n(auto-created on first run,\npip install pyyaml numpy scipy)" as VENV
+
+package "scripts/ (Python 3)" {
+  component "new_experiment.py" as NEW
+  component "setup.py" as SETUP
+  component "feats.py" as FEATS
+  component "train.py" as TRAIN
+  component "decode.py" as DECODE
+  component "lm.py" as LM
+  component "lib/config.py\nYAML load, validate,\nsphinx_train.cfg generator" as CFG
+  component "lib/asr_util.py\nerr, SPHINX_ROOT,\nwaitbar, spinner" as UTIL
+  component "corpus/~__init~__.py\nget_adapter(name)\n(importlib)" as ADP
+  component "corpus/librispeech.py" as LS
+  component "corpus/switchboard.py" as SWB
+}
+
+package "corpus/<name>/" {
+  artifact "corpus.yml" as CY
+  artifact "experiment.yml.template" as CT
+  folder "audio, transcripts,\ndict/, lm/ (gitignored)" as CDATA
+}
+artifact "experiment.yml.template\n(generic, repo root)" as RT
+folder "experiments/NNN/\nexperiment.yml + SphinxTrain tree" as EXP
+
+package "vendor/ (patched upstream, built by make)" {
+  component "sphinxtrain (master 2026-03-24)\nPerl scripts + C tools + etc/ templates" as ST
+  component "pocketsphinx 5.0.4" as PS
+  component "cmu_toolkit\n(CMU-Cambridge SLM)" as SLM
+}
+folder "bin/<uname -m>/\nall built executables" as BIN
+
+U --> SH : new | setup | feats | train | decode | lm
+SH --> VENV : bootstrap, PATH
+SH --> NEW
+SH --> SETUP
+SH --> FEATS
+SH --> TRAIN : run_script()
+SH --> DECODE : run_script()
+SH --> LM
+NEW ..> CT
+NEW ..> RT
+NEW --> EXP : copy template
+SETUP --> CFG
+TRAIN --> CFG
+FEATS --> CFG
+LM --> CFG
+CFG ..> CY
+CFG ..> EXP
+SETUP --> ADP
+LM --> ADP
+ADP --> LS
+ADP --> SWB
+LS ..> CDATA
+SWB ..> CDATA
+SETUP --> EXP : etc/* files
+FEATS --> BIN : sphinx_fe
+FEATS --> CDATA : .mfc next to audio
+TRAIN --> ST : perl NN.step/slave_*.pl
+DECODE --> ST : perl decode/slave.pl
+ST --> BIN
+ST --> PS : pocketsphinx_batch
+LM --> BIN : text2wfreq ... idngram2lm
+ST ..> EXP : cwd = experiments/NNN
+
+note right of SH
+  Exports SPHINX_ROOT, SPHINXTRAIN_DIR,
+  SPHINXTRAIN_BIN_DIR, PATH = .venv/bin : bin/<arch>.
+  run_script(): if qsub is on PATH, qsub
+  scripts/sphinx_job.sh, else run Python locally.
+end note
+note bottom of SH #FFE4E1
+  FINDING: scripts/sphinx_job.sh does not exist (comment: "untested").
+  Any host with a qsub binary (Torque, or Slurm's slurm-wlm-torque
+  wrapper) makes "sphinx train" / "sphinx decode" fail.
+end note
+@enduml

@@ -1,0 +1,49 @@
+@startuml 03h-activity-lm
+!include ../_style.iuml
+title sphinx-asr: "sphinx lm <corpus> <split> | ~--all [-n 3] [-o out]" (lm.py + CMU SLM toolkit)
+
+start
+:load_corpus(corpus);
+if (split and ~--all both given?) then (yes)
+  :ERROR;
+  stop
+elseif (neither given?) then (yes)
+  :print help, exit 1;
+  stop
+endif
+if (~--all?) then (yes)
+  :text from corpus.full_transcripts via the adapter
+  (throwaway split cfg pointing at the full file);
+  :default output corpus/<name>/lm/<name>.arpa;
+else (split)
+  :extract_text(corpus, split, root);
+  note right #FFE4E1
+    FINDING: extract_text() is not defined
+    (the function is extract_text_from_split).
+    The per-split path raises NameError. ~--all
+    needs full_transcripts in corpus.yml, which only
+    switchboard defines, so today only
+    "sphinx lm switchboard ~--all" works. Also
+    idngram2lm gets no -n, so -n other than 3
+    produces mismatched counts.
+  end note
+  :default output corpus/<name>/lm/<split>.arpa;
+endif
+:one "~<s> TEXT ~</s>" sentence per line, in a temp dir;
+partition "CMU-Cambridge SLM toolkit (bin/<arch>)" {
+  :text2wfreq < train.txt > train.wfreq;
+  :wfreq2vocab < train.wfreq > train.vocab;
+  :text2idngram -vocab train.vocab -n 3 < train.txt > train.idngram;
+  :idngram2lm -idngram train.idngram -vocab train.vocab -arpa out.arpa;
+}
+:print how to reference it:
+corpus.yml lm: lm/<file>, or experiment.yml decode.lm;
+stop
+note left
+  Switchboard corpus.yml already points
+  lm: lm/switchboard.arpa, i.e. the output
+  of "sphinx lm switchboard ~--all".
+  LibriSpeech uses the downloaded
+  3-gram.pruned.3e-7.arpa.gz from OpenSLR.
+end note
+@enduml

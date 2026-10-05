@@ -1,0 +1,88 @@
+@startuml 01b-activity-build-sh
+!include ../_style.iuml
+title Pi-Gen imaging: scripts/build.sh end to end (as coded)
+
+start
+:Operator runs ./scripts/build.sh on the workstation;
+:source scripts/_pigen-podman.sh
+(sets REPO_ROOT, PI_GEN_DIR, defines run_pigen);
+
+partition "Airgap payloads + secrets (idempotent, skip if file non-empty)" {
+  :download-assets.sh
+  k3s-arm64 (K3S_VERSION default v1.31.4+k3s1),
+  get.k3s.io installer, k3s-airgap-images-arm64.tar.zst,
+  oh-my-zsh master tarball, writes assets/K3S_VERSION;
+  :generate-token.sh
+  openssl rand -hex 32 > assets/cluster-token;
+  :generate-ssh-key.sh
+  ssh-keygen ed25519 > assets/ivalice-cluster{,.pub};
+  :generate-munge-key.sh
+  1024 random bytes > assets/munge.key (0400);
+}
+
+partition "Resolve SSH keys on the host" {
+  if (operator pubkey exists?\n$IVALICE_PUBKEY_PATH or ~/.ssh/headnode-key.pub) then (no)
+    :ERROR: refuse to build;
+    stop
+  endif
+  if (assets/ivalice-cluster.pub exists?) then (no)
+    :ERROR;
+    stop
+  endif
+  :export PUBKEY_SSH_FIRST_USER =
+  operator pubkey + newline + cluster pubkey;
+}
+
+:touch pi-gen/stage3,4,5/SKIP and SKIP_IMAGES;
+note right
+  Belt and braces: STAGE_LIST in config.base
+  already omits stage3-5.
+end note
+
+partition "run_pigen(configs/config.base)" {
+  :resolve config path to absolute;
+  if (pi-gen/ present?) then (no)
+    :ERROR: clone pi-gen -b arm64;
+    stop
+  endif
+  :require_podman_machine()
+  podman installed + responding,
+  macOS only: machine must be Rootful=true;
+  :ensure_clean_podman_state()
+  macOS only: podman machine ssh -> losetup -D,
+  detach every "(lost)" / "(deleted)" loop;
+  :patch_pigen_losetup_sanitize()
+  sed pi-gen/scripts/common:
+  loopdev = first field of (losetup -f)
+  (util-linux 2.41 suffix fix, idempotent);
+  :remove_pigen_stage2_export_marker()
+  rm pi-gen/stage2/EXPORT_IMAGE
+  (no stray "-lite" image);
+  if (container named pigen_work exists?) then (yes)
+    :ERROR: podman rm -v it first;
+    stop
+  endif
+  :GIT_HASH = ivalice-<UTC timestamp>;
+  :podman build ~--build-arg BASE_IMAGE=debian:trixie -t pi-gen pi-gen/;
+  :podman run ~--privileged
+    -v config.base:/config:ro  -v stages:/stages:ro  -v assets:/assets:ro
+    -e GIT_HASH -e PUBKEY_SSH_FIRST_USER
+    pi-gen bash -c "binfmt setup, loop cleanup,
+    cd /pi-gen && ./build.sh -c /config, rsync work/*/build.log deploy/";
+  note right
+    See 01c (sequence) and 01d / 01e
+    (what pi-gen does inside).
+  end note
+  :podman cp pigen_work:/pi-gen/deploy/. -> pi-gen/deploy/;
+  :podman logs ~--timestamps > pi-gen/logs/build-podman.log;
+  if (pi-gen/deploy/*.img exists?) then (no)
+    :ERROR: see build-podman.log;
+    stop
+  endif
+  if (PRESERVE_CONTAINER=1?) then (no)
+    :podman rm -v pigen_work;
+  endif
+}
+:print deploy/ listing\n(image name prefix "ivalice", IMG_SUFFIX "");
+stop
+@enduml

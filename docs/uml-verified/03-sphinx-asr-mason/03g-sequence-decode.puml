@@ -1,0 +1,42 @@
+@startuml 03g-sequence-decode
+!include ../_style.iuml
+title sphinx-asr: "sphinx decode experiments/NNN" (decode.py)
+
+actor Researcher as U
+participant "decode.py\n(main thread)" as D
+participant "poll_progress\n(daemon thread)" as PP
+participant "perl decode/slave.pl\n(+ patched psdecode.pl)" as P
+database "experiments/NNN/result/" as R
+
+U -> D : sphinx decode experiments/001
+D -> D : require etc/sphinx_train.cfg and\nnon-empty model_parameters/
+D -> D : npart = DEC_CFG_NPART from cfg,\ntotal = lines in <db>_decode.fileids
+D -> R : delete old *.match, *.matchseg
+D -> PP : start(stop_event)
+D -> P : Popen perl slave.pl (stdout captured,\nstderr discarded), cwd = exp dir
+P -> P : DEC_CFG_NPART psdecode.pl jobs via queue
+P -> P : PATCH: if CFG_LDA_MLLT = yes,\nadd -ldadim CFG_LDA_DIMENSION
+loop every 5 s while decoding
+  PP -> R : count lines in <db>-i-N.match
+  PP -> U : progress bar "decoding"
+end
+loop every 0.25 s once <db>.match exists
+  PP -> U : spinner "aligning..."
+end
+P -> R : <db>.match, <db>.align
+P --> D : exit code, output lines
+D -> PP : stop_event.set(), join
+alt exit != 0
+  D -> U : last 20 lines of first logdir/decode/*.log
+else ok
+  D -> U : "Decoding complete. Time"
+  D -> U : lines containing WORD ERROR / SENTENCE ERROR
+end
+
+note right of P
+  Why the psdecode patch matters: without
+  -ldadim, pocketsphinx would assume the full LDA
+  output size, mismatching a model trained with
+  CFG_LDA_DIMENSION 29 or 32.
+end note
+@enduml

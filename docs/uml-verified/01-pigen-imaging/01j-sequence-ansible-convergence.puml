@@ -1,0 +1,73 @@
+@startuml 01j-sequence-ansible-convergence
+!include ../_style.iuml
+title Pi-Gen imaging: post-boot Ansible convergence on the head (dalmasca)
+
+participant "systemd" as SD
+participant "ivalice-postboot-ansible\n.service" as SVC
+participant "ivalice-wait-for-\nworkers.sh" as W
+participant "run-ansible.sh\nansible-playbook site.yml" as A
+participant "dalmasca\n(local connection)" as H
+participant "workers x5\n(ssh ivalice@10.42.0.11-15,\nkey /root/.ssh/ivalice-cluster)" as WK
+database "/var/log/ivalice/\nansible.log" as LOG
+
+SD -> SVC : start (After slurmctld, network-online,\nRequires slurmctld,\nif role.head and not ansible-postboot.done)
+SVC -> W : ExecStartPre
+loop every 10 s, up to 600 s
+  W -> WK : ping -c1 each worker IP
+end
+alt >= 3 of 5 respond
+  W --> SVC : exit 0
+else timeout
+  W --> SVC : exit 1 -> Restart after 120 s
+end
+SVC -> A : ExecStart (stdout/stderr -> ansible.log)
+A -> LOG : log_path
+group 10-common.yml (all 6 nodes)
+  A -> H : facts, k3s_enabled from k3s.enabled marker
+  A -> WK : same, in parallel (forks=6)
+  note right
+    asserts: node.conf has NODE_ROLE, hostname -s = inventory name,
+    firstboot.done, /etc/hosts has 6 entries, podman present,
+    munge active + key 0400 munge:munge, slurm.conf present,
+    clock drift < 300 s. sysctl bridge-nf-call-iptables + ip_forward.
+  end note
+end
+group 20-slurm-controller.yml (head, any_errors_fatal)
+  A -> H : start slurmctld, wait :6817, scontrol ping,\nsinfo lists >= 5 nodes
+end
+group 30-slurm-compute.yml (workers, serial 2)
+  A -> WK : start slurmd, wait :6818
+  A -> H : delegate: sinfo -n <worker> until idle/mix/alloc (soft)
+end
+group 40 / 50 k3s (only where k3s_enabled)
+  A -> H : start k3s, wait :6443, /healthz ok,\ncopy node-token
+  A -> WK : write config.yaml, start k3s-agent,\nkubectl wait Ready (delegated)
+end
+group 90-verify.yml (head)
+  A -> H : sinfo: >= 5 nodes idle/mix/alloc
+  A -> WK : srun -N5 ~--ntasks-per-node=1 hostname (as ivalice)
+  A -> H : assert 5 hostnames, k3s nodes Ready (if enabled)
+  A -> H : write ansible-postboot.done
+end
+A --> SVC : rc
+SVC -> SVC : ExecStartPost writes ansible-postboot.done again
+
+note over A, WK #FFE4E1
+  FINDING (likely blockers, verify on the head):
+  1. Workers are reached as ivalice with become=sudo and become_ask_pass=False,
+     but config.base does not set PASSWORDLESS_SUDO=1 (pi-gen default 0), so
+     every privileged task on a worker should fail on the sudo password prompt.
+  2. ansible.cfg sets stdout_callback = yaml, which lives in community.general,
+     and common/tasks uses ansible.posix.sysctl. Debian ansible-core ships neither
+     collection, and an unresolvable module fails at parse time, which
+     ignore_errors cannot catch.
+  3. StartLimitIntervalSec is in [Service], see 01h.
+end note
+
+note over W, WK #FFE4E1
+  FINDING: the wait quorum is 3 of 5, but 90-verify hard-requires all 5 workers
+  idle/mix/alloc and srun -N5 to succeed (20-slurm-controller only counts
+  configured nodes, which sinfo lists even when down). With 1-2 workers down the
+  service burns its 5 restarts in 30 min and stops. Align quorum and verify bar.
+end note
+@enduml

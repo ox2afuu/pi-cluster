@@ -1,0 +1,51 @@
+@startuml 02e-sequence-baum-welch-control
+!include ../_style.iuml
+title CMU Sphinx reference: how one Baum-Welch step really runs (50.cd_hmm_tied, same shape for 20 and 30)
+
+participant "caller\n(sphinxtrain CLI or wrapper)" as CALLER
+participant "slave_convg.pl\n(iter 1)" as SC
+participant "Queue backend\n($CFG_QUEUE_TYPE)" as Q
+participant "baum_welch.pl\npart i of NPART" as BW
+participant "bw (C)" as BWC
+participant "norm_and_launchbw.pl" as NL
+participant "norm.pl / norm (C)" as NORM
+participant "slave_convg.pl\n(iter k+1)" as SCN
+database "logdir/50.cd_hmm_tied/" as LOG
+
+CALLER -> SC : perl slave_convg.pl
+SC -> SC : iter 1: clean bwaccumdir, logs, qmanager,\ninit_mixw copies CI model into CD model
+loop i = 1..CFG_NPART
+  SC -> Q : LaunchScript bw.<ngau>.<iter>.<part>
+  Q -> BW : run (inline / fork / qsub)
+  BW -> BWC : forward-backward over its slice of fileids
+  BWC -> LOG : <db>.<ngau>.<iter>-<part>.bw.log\n("overall> frames ... likelihood")
+  BWC -> BWC : counts -> bwaccumdir/
+end
+SC -> Q : LaunchScript norm.<iter>, deps = all bw jobs
+Q -> NL : run when deps finish
+NL -> LOG : read every part log
+alt a part did not reach "Counts saved"
+  NL -> LOG : norm.log "Only n of N parts ... failed"
+else 0 frames
+  NL -> LOG : norm.log "... 0 frames! Aborting"
+else normal
+  NL -> NORM : merge accumulators -> new\nmeans / variances / mixw / tmat
+  NL -> LOG : "Current Overall Likelihood Per Frame = x"
+  NL -> NL : ratio = x - previous iteration (02f)
+  alt keep iterating
+    NL -> SCN : RunScript slave_convg.pl iter+1
+    SCN -> Q : next round of bw + norm jobs
+  else converged or max iterations
+    NL -> NL : split Gaussians or finish,\nwrite "TRAINING COMPLETE"
+  end
+end
+SC -> LOG : TiedWaitForConvergence: poll\n<db>.<ngau>.<iter>.norm.log every 5 s
+SC --> CALLER : 0 on "COMPLETE", -1 on "failed"/"Aborting"
+
+note over SC, SCN
+  The iteration chain is recursive and lives inside the queue
+  (norm job launches the next slave_convg). Only the first
+  slave_convg.pl returns to the caller, after polling the logs.
+  On Queue::PBS the accumulator cleanup is skipped ("NFS bugs").
+end note
+@enduml
