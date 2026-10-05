@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # ~/.bashrc.d/ivalice.sh — sourced by ivalice's interactive bash on the head.
 # Exposes k3s's kubeconfig so `kubectl` works without --kubeconfig.
 if [ -r /etc/rancher/k3s/k3s.yaml ]; then

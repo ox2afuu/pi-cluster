@@ -1,0 +1,50 @@
+# Lima VM that runs the GitLab project runner for image builds.
+#
+# Native aarch64 under Apple Virtualization.framework, so pi-gen builds
+# the arm64 image without qemu-user emulation. It is a separate VM from
+# the shared `mac-local` runner (gitlab-runner-lima), because pi-gen needs
+# root, loop devices, and bind/proc mounts that the shared runner must
+# not grant to other projects.
+#
+# Create:  limactl create --name pigen-builder infra/lima/pigen-builder.yaml
+#          limactl start pigen-builder
+# Then:    infra/lima/register-runner.sh   (see docs/infra/gitlab-ci.md)
+base: template://debian-13
+
+vmType: vz
+arch: aarch64
+cpus: 8
+memory: 16GiB
+disk: 120GiB
+
+# No host directories are shared: builds clone from GitLab, and an
+# isolated filesystem keeps a runaway build away from the host.
+mounts: []
+
+containerd:
+  system: false
+  user: false
+
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update
+      # pi-gen arm64 host dependencies (pi-gen/depends), plus tools the
+      # pipeline uses to build sphinx-asr and verify the image.
+      apt-get install -y --no-install-recommends \
+        quilt parted coreutils qemu-user-binfmt debootstrap zerofree zip \
+        dosfstools e2fsprogs libcap2-bin libarchive-tools grep rsync \
+        xz-utils curl xxd file git kmod bc gpg pigz arch-test \
+        ca-certificates sudo jq python3 python3-venv shellcheck \
+        build-essential bison swig
+      # The GitLab instance lives in another Lima VM; from a guest, the
+      # host's loopback is reachable at the user-mode gateway 192.168.5.2.
+      grep -q 'git.bytehearth.internal' /etc/hosts || \
+        echo '192.168.5.2 git.bytehearth.internal' >> /etc/hosts
+
+message: |
+  pigen-builder is up. Install and register the runner with:
+    infra/lima/register-runner.sh

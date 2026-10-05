@@ -38,3 +38,7 @@ venv/
 # Engineering wiki build output (mkdocs build, lefthook hooks).
 site/
 .cache/
+
+# CI image build outputs (scripts/ci/build-image.sh). The image holds
+# ephemeral secrets; never commit or publish it.
+out/

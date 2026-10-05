@@ -2,8 +2,9 @@
 #
 # scripts/_pigen-podman.sh
 #
-# Internal helper sourced by scripts/build-{head,head-gui,worker}.sh.
-# Builds and runs pi-gen inside podman, replacing pi-gen's stock
+# Internal helper sourced by scripts/build.sh (and by
+# scripts/ci/build-image.sh, which reuses only the two pi-gen patch
+# functions). Builds and runs pi-gen inside podman, replacing pi-gen's stock
 # build-docker.sh. We don't use build-docker.sh directly because:
 #
 #   1. It greps `podman info` for the substring "rootless" and prepends
@@ -21,10 +22,13 @@
 # This helper:
 #   - Verifies a rootful podman machine is running.
 #   - Builds the pi-gen container image (`podman build`).
-#   - Runs the build with --privileged plus three bind-mounts:
-#       /config   ← the per-image config file
-#       /stages   ← ${REPO_ROOT}/stages   (so STAGE_LIST=../stages/* works)
-#       /assets   ← ${REPO_ROOT}/assets   (so ${STAGE_DIR}/../../assets works)
+#   - Runs the build with --privileged plus four read-only bind-mounts:
+#       /config        ← the per-image config file
+#       /stages        ← ${REPO_ROOT}/stages (so STAGE_LIST=../stages/* works)
+#       /assets        ← ${REPO_ROOT}/assets (so ${STAGE_DIR}/../../assets works)
+#       /ivalice-repo  ← ${REPO_ROOT}, exported as IVALICE_REPO_ROOT, so
+#                        stages/stage-ivalice-base/10-sphinx-asr can
+#                        `git archive` the pinned sphinx-asr commit
 #   - Copies the contents of /pi-gen/deploy out of the container into
 #     pi-gen/deploy/ on the host (images only), and dumps the container log
 #     to pi-gen/logs/build-podman.log.
@@ -160,6 +164,8 @@ patch_pigen_losetup_sanitize() {
   # Match the exact line as shipped: tab-indented, no trailing whitespace.
   # Using sed -i.bak for macOS/GNU portability, then removing the backup.
   # Delimiter is '#' because the replacement contains '|' (losetup -f | awk).
+  # $(...) below is literal text for pi-gen's script, not an expansion.
+  # shellcheck disable=SC2016
   sed -i.bak \
     's#^\(	\)loopdev="\$(losetup -f)"$#\1loopdev="$(losetup -f | awk '\''{print $1}'\'')"#' \
     "${common}"
@@ -247,6 +253,8 @@ EOF
   echo "==> podman run pi-gen build (this takes a while)"
   # We deliberately mirror the inner shell command from build-docker.sh so the
   # build environment matches what pi-gen upstream expects.
+  # PIGEN_PODMAN_OPTS is a list of extra flags, so it is split on purpose.
+  # shellcheck disable=SC2086
   podman run \
     --name "${container_name}" \
     --privileged \
@@ -254,11 +262,18 @@ EOF
     --volume "${config_file}:/config:ro" \
     --volume "${REPO_ROOT}/stages:/stages:ro" \
     --volume "${REPO_ROOT}/assets:/assets:ro" \
+    --volume "${REPO_ROOT}:/ivalice-repo:ro" \
     -e "GIT_HASH=${git_hash}" \
+    -e IVALICE_REPO_ROOT=/ivalice-repo \
     -e PUBKEY_SSH_FIRST_USER \
     pi-gen \
     bash -e -o pipefail -c '
-      dpkg-reconfigure qemu-user-binfmt
+      # pi-gen arm64 installs qemu-user without its Recommends, so
+      # qemu-user-binfmt is usually absent. It is only needed when the
+      # podman VM is not aarch64 (Apple Silicon builds natively).
+      if dpkg -s qemu-user-binfmt >/dev/null 2>&1; then
+        dpkg-reconfigure qemu-user-binfmt
+      fi
       mount binfmt_misc -t binfmt_misc /proc/sys/fs/binfmt_misc || true
 
       # Final-pass loop cleanup inside the privileged container, in case
@@ -309,5 +324,7 @@ EOF
 
   echo
   echo "Done. Images are in ${PI_GEN_DIR}/deploy/"
+  # Human-readable listing for the operator, not parsed.
+  # shellcheck disable=SC2012
   ls -lh "${PI_GEN_DIR}/deploy/" | tail -n 20
 }
